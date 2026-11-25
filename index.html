@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#223129">
+  <meta name="description" content="Practice guitar chord changes, tune your guitar, and track your personal bests.">
+  <title>Guitar Chord Trainer</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon-192.png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <img class="brand-icon" src="./icon-192.png" width="52" height="52" alt="">
+      <div>
+        <h1>Guitar Chord Trainer</h1>
+        <p>Drills, tuning, and practice history</p>
+      </div>
+    </div>
+  </header>
+  <main>
+    <nav class="navigation" aria-label="Trainer">
+      <button type="button" data-view="practice" aria-controls="practice" aria-current="page">Practice</button>
+      <button type="button" data-view="tuner" aria-controls="tuner">Tuner</button>
+      <button type="button" data-view="history" aria-controls="history">History</button>
+    </nav>
+    <section id="practice" aria-labelledby="practice-heading">
+      <div class="practice-grid">
+        <article class="panel shapes-panel">
+          <div class="section-heading">
+            <h2 id="practice-heading">Chord shapes</h2>
+            <span id="target" class="target"></span>
+          </div>
+          <div class="shapes">
+            <div class="shape" id="shape-first">
+              <label for="chord-first">First chord</label>
+              <select id="chord-first"></select>
+              <canvas width="240" height="252" role="img"></canvas>
+            </div>
+            <div class="shape" id="shape-second">
+              <label for="chord-second">Second chord</label>
+              <select id="chord-second"></select>
+              <canvas width="240" height="252" role="img"></canvas>
+            </div>
+          </div>
+          <p class="legend"><span>○ Open</span><span>× Muted</span><span>1–4 Fretting fingers</span></p>
+        </article>
+        <article class="panel drill-panel" aria-labelledby="drill-heading">
+          <h2 id="drill-heading">One-minute drill</h2>
+          <div class="clock">
+            <span>Time remaining</span>
+            <strong id="clock">1:00</strong>
+          </div>
+          <progress id="countdown" aria-label="Time remaining" max="60" value="60"></progress>
+          <div class="scores">
+            <div class="score good"><span>Good chords</span><strong id="good">0</strong><span id="best-good">Best run —</span></div>
+            <div class="score bad"><span>Bad chords</span><strong id="bad">0</strong><span id="best-bad">Best run —</span></div>
+          </div>
+          <div class="best-time"><span>Best clean change</span><strong id="best-time">—</strong></div>
+          <button type="button" class="primary" id="drill-button">Start drill</button>
+          <p class="message" id="drill-message" role="status">Choose two different chords to begin.</p>
+        </article>
+      </div>
+    </section>
+    <section id="tuner" aria-labelledby="tuner-heading" hidden>
+      <article class="panel tuner-panel">
+        <div class="section-heading">
+          <h2 id="tuner-heading">Standard tuner</h2>
+          <span class="target" id="tuner-state">Microphone off</span>
+        </div>
+        <div id="strings" class="strings" aria-label="Standard guitar strings"></div>
+        <div class="reading">
+          <strong id="pitch">—</strong>
+          <span id="direction">Pluck one open string at a time.</span>
+        </div>
+        <div class="gauge" aria-hidden="true">
+          <div class="gauge-labels"><span>Flat</span><span>In tune</span><span>Sharp</span></div>
+          <div class="track"><div class="tune-zone"></div><div id="needle" hidden></div></div>
+          <div class="gauge-labels ticks"><span>−100</span><span>−50</span><span>0</span><span>+50</span><span>+100</span></div>
+        </div>
+        <p class="pitch-detail" id="pitch-detail"></p>
+        <div class="input-level">
+          <label for="level">Input peak</label>
+          <meter id="level" min="0" max="60" low="12" high="58" optimum="40" value="0"></meter>
+          <span id="level-label">Off</span>
+        </div>
+        <button type="button" class="primary" id="tuner-button">Start tuner</button>
+        <p class="message" id="tuner-message" role="status"></p>
+      </article>
+    </section>
+    <section id="history" aria-labelledby="history-heading" hidden>
+      <article class="panel history-panel">
+        <div class="section-heading history-heading">
+          <h2 id="history-heading">Practice history</h2>
+          <div class="history-filter">
+            <label for="history-filter">Chord pair</label>
+            <select id="history-filter"></select>
+          </div>
+        </div>
+        <div class="history-summary" id="history-summary" hidden>
+          <div><span>Best run</span><strong id="history-best"></strong></div>
+          <div><span>Fastest clean change</span><strong id="history-time"></strong></div>
+        </div>
+        <p class="message" id="history-message"></p>
+        <ul class="history-list" id="history-list" aria-label="Completed drills"></ul>
+      </article>
+    </section>
+  </main>
+</body>
+</html>
