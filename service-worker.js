@@ -1,7 +1,7 @@
-const cacheName = "guitar-chord-trainer-shell-v2";
+const cacheName = "guitar-chord-trainer-shell-v3";
 const files = [
   "./", "./index.html", "./styles.css", "./app.mjs", "./music.mjs",
-  "./capture.mjs", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
+  "./capture.mjs", "./songs.mjs", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
 ];
 
 self.addEventListener("install", (event) => {

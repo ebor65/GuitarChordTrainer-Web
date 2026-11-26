@@ -1,4 +1,5 @@
 import { chords, guitarStrings, recognizeChord, estimatePitch, concatenate } from "./music.mjs";
+import { createSongPractice } from "./songs.mjs";
 
 const duration = 60;
 const countdownSeconds = 3;
@@ -15,6 +16,7 @@ const timeLabel = (seconds) => seconds == null ? "—" : `${seconds.toFixed(2)} 
 const dateLabel = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 let storageError = false;
 let session;
+const songPractice = createSongPractice(toggleSession);
 
 function loadPractice() {
   const defaults = { pair: ["G", "C"], history: [] };
@@ -224,6 +226,10 @@ function processAudio(current, { samples, timestamp }) {
     processStrum(current, samples, timestamp, Math.sqrt(energy / samples.length));
     return;
   }
+  if (current.mode === "song") {
+    songPractice.capture(current, samples, timestamp, Math.sqrt(energy / samples.length));
+    return;
+  }
   current.recent.push(samples);
   current.peaks.push(peak);
   if (current.recent.length > 10) current.recent.shift();
@@ -251,6 +257,9 @@ function stopSession(message) {
     selectors.forEach((selector) => { selector.disabled = false; });
     showShapes();
     element("drill-message").textContent = message;
+  } else if (current.mode === "song") {
+    songPractice.stop();
+    songPractice.message.textContent = message;
   } else {
     tunerButton.textContent = "Start tuner";
     element("tuner-state").textContent = "Microphone off";
@@ -284,7 +293,8 @@ function microphoneError(error) {
 
 async function startSession(mode) {
   const isDrill = mode === "drill";
-  const message = element(isDrill ? "drill-message" : "tuner-message");
+  const isSong = mode === "song";
+  const message = isSong ? songPractice.message : element(isDrill ? "drill-message" : "tuner-message");
   if (isDrill && practice.pair[0] === practice.pair[1]) {
     message.textContent = "Choose two different chords to begin.";
     return;
@@ -293,12 +303,15 @@ async function startSession(mode) {
     message.textContent = "Microphone access requires an HTTPS page or localhost.";
     return;
   }
-  const current = { mode, active: false };
+  const song = isSong ? songPractice.read() : null;
+  if (isSong && !song) return;
+  const current = { mode, active: false, song };
   session = current;
-  const button = isDrill ? drillButton : tunerButton;
+  const button = isSong ? songPractice.button : isDrill ? drillButton : tunerButton;
   button.textContent = "Cancel";
   message.textContent = "Waiting for microphone access…";
   if (isDrill) selectors.forEach((selector) => { selector.disabled = true; });
+  if (isSong) songPractice.setEditing(false);
 
   try {
     current.context = new AudioContext({ latencyHint: "interactive" });
@@ -364,6 +377,8 @@ async function startSession(mode) {
           finishDrill(current);
         }
       }, 50);
+    } else if (isSong) {
+      songPractice.start(current, stopSession);
     } else {
       Object.assign(current, { recent: [], peaks: [], nextPitch: 0 });
       current.active = true;
