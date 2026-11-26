@@ -1,11 +1,14 @@
-const cacheName = "guitar-chord-trainer-shell-v3";
+const cacheName = "guitar-chord-trainer-shell-v4";
 const files = [
-  "./", "./index.html", "./styles.css", "./app.mjs", "./music.mjs",
+  "./index.html", "./styles.css?v=4", "./app.mjs?v=4", "./music.mjs",
   "./capture.mjs", "./songs.mjs", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(cacheName).then((cache) => cache.addAll(files)));
+  const requests = files.map((file) => new Request(new URL(file, self.registration.scope), { cache: "reload" }));
+  event.waitUntil(caches.open(cacheName)
+    .then((cache) => cache.addAll(requests))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (event) => {
@@ -16,17 +19,12 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET" || new URL(event.request.url).origin !== self.location.origin) return;
-  event.respondWith(caches.open(cacheName).then(async (cache) => {
-    const cached = await cache.match(event.request);
+  const { request } = event;
+  if (request.method !== "GET" || !request.url.startsWith(self.registration.scope)) return;
+  event.respondWith(fetch(request, { cache: "no-cache" }).catch(async (error) => {
+    const cache = await caches.open(cacheName);
+    const cached = await cache.match(request.mode === "navigate" ? "./index.html" : request);
     if (cached) return cached;
-    if (event.request.mode === "navigate") {
-      try {
-        return await fetch(event.request);
-      } catch {
-        return cache.match("./index.html");
-      }
-    }
-    return fetch(event.request);
+    throw error;
   }));
 });
