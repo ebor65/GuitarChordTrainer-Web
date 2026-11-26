@@ -1,6 +1,7 @@
 import { chords, guitarStrings, recognizeChord, estimatePitch, concatenate } from "./music.mjs";
 
 const duration = 60;
+const countdownSeconds = 3;
 const storageKey = "guitar-chord-trainer-v1";
 const element = (id) => document.getElementById(id);
 const selectors = [element("chord-first"), element("chord-second")];
@@ -139,6 +140,7 @@ function updateClock(remaining) {
 }
 
 function processStrum(current, samples, timestamp, level) {
+  if (timestamp < current.audioStartsAt) return;
   const { blocks } = current;
   if (blocks.length) {
     blocks.push(samples);
@@ -329,18 +331,34 @@ async function startSession(mode) {
       Object.assign(current, {
         pair: [...practice.pair], good: 0, bad: 0, previous: 0.001, floor: 0.001,
         lastStrum: -Infinity, lastCorrect: null, fastest: null, blocks: [],
-        audioDeadline: current.context.currentTime + duration,
-        deadline: performance.now() + duration * 1000,
       });
       updateClock(duration);
       element("good").textContent = "0";
       element("bad").textContent = "0";
-      showShapes(0);
+      showShapes();
       showPracticeRecords();
-      button.textContent = "Stop drill";
-      message.textContent = "Strum the highlighted chord.";
+      const countdownUntil = performance.now() + countdownSeconds * 1000;
+      let countdown = countdownSeconds;
+      message.textContent = `Starting in ${countdown}`;
       current.timer = setInterval(() => {
         const now = performance.now();
+        if (!current.active) {
+          const remaining = Math.ceil((countdownUntil - now) / 1000);
+          if (remaining > 0) {
+            if (remaining !== countdown) {
+              countdown = remaining;
+              message.textContent = `Starting in ${countdown}`;
+            }
+            return;
+          }
+          current.audioStartsAt = current.context.currentTime;
+          current.audioDeadline = current.audioStartsAt + duration;
+          current.deadline = now + duration * 1000;
+          current.active = true;
+          showShapes(0);
+          button.textContent = "Stop drill";
+          message.textContent = "Strum the highlighted chord.";
+        }
         updateClock(Math.max(0, (current.deadline - now) / 1000));
         if (now >= current.deadline && (!current.blocks.length || now > current.deadline + 350)) {
           finishDrill(current);
@@ -348,11 +366,11 @@ async function startSession(mode) {
       }, 50);
     } else {
       Object.assign(current, { recent: [], peaks: [], nextPitch: 0 });
+      current.active = true;
       button.textContent = "Stop tuner";
       message.textContent = "";
       element("tuner-state").textContent = "Listening";
     }
-    current.active = true;
     source.connect(capture).connect(silent).connect(current.context.destination);
   } catch (error) {
     if (session === current) stopSession(microphoneError(error));

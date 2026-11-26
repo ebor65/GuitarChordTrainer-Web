@@ -1,4 +1,4 @@
-const cacheName = "guitar-chord-trainer-shell-v1";
+const cacheName = "guitar-chord-trainer-shell-v2";
 const files = [
   "./", "./index.html", "./styles.css", "./app.mjs", "./music.mjs",
   "./capture.mjs", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
