@@ -1,6 +1,6 @@
-import { meters } from "./rhythm.mjs";
+import { gridOptions, meterKey, slotLabel, strokeAt } from "./rhythm.mjs";
 import { createRhythmPanel } from "./rhythm-ui.mjs";
-import { formatGuide, parseSongText } from "./song-format.mjs";
+import { formatGuide, parseSongText, updateTimingHeaders } from "./song-format.mjs";
 
 export { parseSong } from "./song-format.mjs";
 
@@ -22,10 +22,11 @@ Pattern Folk: D - D U - U D U
 [G]Bring it home`,
 };
 const dreamId = "builtin-dream";
+const tripletId = "builtin-dream-triplet";
 const libraryKey = "guitar-chord-trainer-song-library-v2";
 const legacyKey = "guitar-chord-trainer-song-v1";
 
-function loadLibrary() {
+export function loadLibrary() {
   try {
     const saved = JSON.parse(localStorage.getItem(libraryKey));
     if (saved && Array.isArray(saved.songs)) {
@@ -51,11 +52,23 @@ function loadLibrary() {
   return { songs: [], selected: morning.id };
 }
 
+export function saveLibrary(library) {
+  localStorage.setItem(libraryKey, JSON.stringify(library));
+}
+
 function node(tag, text, className) {
   const element = document.createElement(tag);
   if (text) element.textContent = text;
   if (className) element.className = className;
   return element;
+}
+
+function beatCount(slots, subdivision) {
+  return Number((slots / subdivision).toFixed(3));
+}
+
+function scheduledPattern(song, row, start, end) {
+  return Array.from({ length: end - start }, (_, index) => strokeAt(song, start + index, row)).join(" ");
 }
 
 function renderChart(song, target, preview = false) {
@@ -64,7 +77,7 @@ function renderChart(song, target, preview = false) {
   heading.append(node("h3", metadata.title));
   if (metadata.artist) heading.append(node("p", metadata.artist));
   const details = [
-    `${meters[song.meter].name} ${song.kind} · ${song.bpm} BPM`,
+    `${song.grid.name} ${song.kind} · ${song.bpm} BPM`,
     ...[["key", "Key"], ["tuning", "Tuning"], ["capo", "Capo"]].flatMap(([key, label]) =>
       metadata[key] ? [`${label} ${metadata[key]}`] : []),
   ];
@@ -83,6 +96,22 @@ function renderChart(song, target, preview = false) {
       patterns.append(node("li", `${name}${name === song.defaultPattern ? " (default)" : ""} · ${value}`));
     }
     heading.append(patterns);
+    const timing = node("details");
+    timing.append(node("summary", "Chord timing and patterns"));
+    const events = node("ol");
+    for (const [row, event] of song.changes.entries()) {
+      const position = slotLabel(event.slot, song.barSlots, song.grid.subdivision);
+      const duration = beatCount(event.duration, song.grid.subdivision);
+      const end = Math.min(event.slot + event.duration, event.slot + song.barSlots);
+      const pattern = scheduledPattern(song, row, event.slot, end);
+      events.append(node("li", event.chord + " · " + position + " · " + duration + " beats · " +
+        (event.localPattern ? "Local " + event.localPattern + " · " : "") + pattern +
+        (end < event.slot + event.duration ? " …" : "")));
+    }
+    timing.append(events);
+    heading.append(timing);
+    heading.append(node("p", "Default chord: " + beatCount(song.defaultSlots, song.grid.subdivision) +
+      " beats · " + song.patternMode, "message"));
   }
 
   const chords = [];
@@ -123,6 +152,13 @@ export function createSongPractice(container, beforeStart) {
   const patternPicker = get("pattern");
   const range = get("section");
   const firstBar = get("first");
+  const seekBar = get("seek");
+  const eventText = get("event");
+  const timing = get("timing-fields");
+  const timingButton = get("timing");
+  const timingInputs = ["meter", "bpm", "division", "beats", "pattern", "mode"].map(name => get("timing-" + name));
+  const [timingMeter, timingBpm, timingDivision, timingBeats, timingPattern, timingMode] = timingInputs;
+  let timingDraft;
   const lastBar = get("last");
   const builtins = [morning];
   let library = loadLibrary();
@@ -142,6 +178,7 @@ export function createSongPractice(container, beforeStart) {
       if (!patternPicker.querySelector('[value=""]')) patternPicker.add(new Option("Custom", ""));
       patternPicker.value = "";
     },
+    onReady(ready) { get("seek-go").disabled = !ready; },
     read({ pattern }, preview) {
       const arranged = { ...song, pattern };
       const repeat = get("repeat").checked;
@@ -150,7 +187,7 @@ export function createSongPractice(container, beforeStart) {
         const section = song.sections[Number(range.value)];
         return { song: arranged, from: section.start, to: section.end, loop: repeat };
       }
-      const size = pattern.length;
+      const size = song.barSlots;
       const bars = Math.ceil(song.slots / size);
       const first = firstBar.valueAsNumber;
       const last = lastBar.valueAsNumber;
@@ -159,8 +196,21 @@ export function createSongPractice(container, beforeStart) {
       }
       return { song: arranged, from: (first - 1) * size, to: Math.min(last * size, song.slots), loop: repeat };
     },
-    onPulse(pulse) {
+    onPulse(pulse, played) {
       const row = pulse && !pulse.countIn ? pulse.row : -1;
+      eventText.hidden = row < 0;
+      if (row >= 0) {
+        const { barSlots, grid: { subdivision } } = played;
+        const event = played.changes[row];
+        const from = Math.max(event.slot, pulse.slot - pulse.beat);
+        const to = Math.min(event.slot + event.duration, pulse.slot - pulse.beat + barSlots);
+        const timing = slotLabel(pulse.slot, barSlots, subdivision);
+        const text = event.chord + " · Bar/beat " + timing + " · " + beatCount(pulse.duration, subdivision) +
+          " beats, " + beatCount(pulse.remaining, subdivision) + " remaining · " +
+          (from > event.slot ? "… " : "") + scheduledPattern(played, row, from, to) +
+          (to < event.slot + event.duration ? " …" : "");
+        if (eventText.textContent !== text) eventText.textContent = text;
+      }
       if (row === activeRow) return;
       rows.chords[activeRow]?.classList.remove("active");
       rows.chords[activeRow]?.removeAttribute("aria-current");
@@ -201,8 +251,9 @@ export function createSongPractice(container, beforeStart) {
     });
     range.add(new Option("Bar range", "bars"));
     get("bars").hidden = true;
-    const bars = Math.ceil(song.slots / song.pattern.length);
-    firstBar.value = 1;
+    const bars = Math.ceil(song.slots / song.barSlots);
+    firstBar.value = seekBar.value = 1;
+    seekBar.max = bars;
     firstBar.max = lastBar.max = bars;
     lastBar.value = bars;
     get("repeat").checked = false;
@@ -214,7 +265,7 @@ export function createSongPractice(container, beforeStart) {
     if (saveSelection) {
       const next = { ...library, selected: entry.id };
       try {
-        localStorage.setItem(libraryKey, JSON.stringify(next));
+        saveLibrary(next);
         library = next;
       } catch {
         get("status").textContent = "The selection could not be saved on this device.";
@@ -252,6 +303,7 @@ export function createSongPractice(container, beforeStart) {
   function openEditor(entry, copy = false) {
     ++countSelections;
     controls.stop();
+    closeTiming();
     editing = { entry: copy ? undefined : entry, original: entry?.source ?? "" };
     source.value = editing.original;
     player.hidden = true;
@@ -266,6 +318,7 @@ export function createSongPractice(container, beforeStart) {
   }
 
   function closeEditor(focus = true) {
+    closeTiming();
     editing = undefined;
     editor.hidden = true;
     player.hidden = false;
@@ -286,6 +339,60 @@ export function createSongPractice(container, beforeStart) {
       return null;
     }
   }
+
+  function closeTiming() {
+    timingDraft = undefined;
+    timing.hidden = true;
+    timingButton.setAttribute("aria-expanded", "false");
+  }
+
+  function chooseSubdivisions(preferred) {
+    const meter = meterKey(timingMeter.value.trim());
+    if (meter === null) return;
+    timingDivision.replaceChildren(...gridOptions(meter).map(option => new Option(option.kind)));
+    if ([...timingDivision.options].some(option => option.value === preferred)) timingDivision.value = preferred;
+  }
+
+  timingButton.addEventListener("click", () => {
+    if (!timing.hidden) {
+      closeTiming();
+      return;
+    }
+    timingDraft = readEditor();
+    if (!timingDraft) return;
+    timingMeter.value = timingDraft.grid.name;
+    timingBpm.value = timingDraft.bpm;
+    chooseSubdivisions(timingDraft.kind);
+    timingBeats.value = timingDraft.meta["default chord beats"] ?? "";
+    timingPattern.replaceChildren(...timingDraft.patterns.map(({ name }) => new Option(name)));
+    timingPattern.value = timingDraft.defaultPattern;
+    timingMode.value = timingDraft.patternMode;
+    timing.hidden = false;
+    timingButton.setAttribute("aria-expanded", "true");
+    timingMeter.focus();
+  });
+  timingMeter.addEventListener("change", () => chooseSubdivisions(timingDivision.value));
+  source.addEventListener("input", closeTiming);
+  get("timing-apply").addEventListener("click", () => {
+    if (!timingDraft) return;
+    const values = timingInputs.map(input => input.value);
+    if (!values[0].trim() || !values[1].trim()) {
+      get("editor-error").textContent = "Enter a meter and saved BPM.";
+      return;
+    }
+    const next = updateTimingHeaders(source.value, timingDraft, values);
+    try {
+      parseSongText(next, editing.entry?.fallback);
+    } catch (error) {
+      get("editor-error").textContent = error.message;
+      return;
+    }
+    source.value = next;
+    get("preview-sheet").hidden = true;
+    get("editor-error").textContent = "";
+    closeTiming();
+    source.focus();
+  });
 
   get("add").addEventListener("click", () => openEditor());
   editButton.addEventListener("click", () => {
@@ -312,7 +419,7 @@ export function createSongPractice(container, beforeStart) {
     const songs = previous ? library.songs.map(item => item.id === id ? entry : item) : [...library.songs, entry];
     const next = { songs, selected: id };
     try {
-      localStorage.setItem(libraryKey, JSON.stringify(next));
+      saveLibrary(next);
     } catch {
       get("editor-error").textContent = "Could not save the song. Your previous songs are still available.";
       return;
@@ -333,6 +440,10 @@ export function createSongPractice(container, beforeStart) {
     const pattern = song.patterns.find(({ name }) => name === patternPicker.value);
     if (pattern) controls.setPattern(song.meter, pattern.value, song.kind);
   });
+  get("seek-go").addEventListener("click", () => controls.seek((seekBar.valueAsNumber - 1) * song.barSlots));
+  seekBar.addEventListener("keydown", event => {
+    if (event.key === "Enter") get("seek-go").click();
+  });
   get("song-speed").addEventListener("click", () => controls.setBpm(song.bpm));
 
   const initial = library.selected;
@@ -352,6 +463,7 @@ export function createSongPractice(container, beforeStart) {
       if (source.value.trim() && source.value !== editing.original && source.value !== text &&
           !window.confirm("Replace the unsaved text with the example?")) return;
       source.value = text;
+      closeTiming();
       get("preview-sheet").hidden = true;
       get("editor-error").textContent = "";
       source.focus();
@@ -360,6 +472,16 @@ export function createSongPractice(container, beforeStart) {
     console.warn(error);
     get("example").title = "The built-in example could not be loaded.";
   });
+
+  fetch(new URL("./assets/songs/dream-a-little-dream-triplet.txt", import.meta.url)).then(response => {
+    if (!response.ok) throw new Error("Could not load the triplet arrangement.");
+    return response.text();
+  }).then(text => {
+    parseSongText(text);
+    builtins.push({ id: tripletId, source: text });
+    showPicker();
+    if (initial === tripletId && countSelections === 0) displaySelected(tripletId);
+  }).catch(console.warn);
 
   return controls;
 }

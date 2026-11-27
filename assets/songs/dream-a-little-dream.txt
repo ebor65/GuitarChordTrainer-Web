@@ -3,26 +3,27 @@ Artist: The Mamas & the Papas
 Key: C
 Tuning: E A D G B E
 Capo: None
-Meter: 4/4
+Meter: 2/4
 BPM: 89
-Subdivision: triplet
+Subdivision: straight
+Default Chord Beats: 2
 Timing: Simplified practice timing
 Chart URL: https://tabs.ultimate-guitar.com/tab/the-mamas-the-papas/dream-a-little-dream-of-me-chords-1131341
-Pattern Main Pattern: D-U D-U D-U D-U
-Pattern Simplified Alternative: D-- D-U D-- D-U
-Default Pattern: Simplified Alternative
+Pattern Main Pattern: D - D U
+Default Pattern: Main Pattern
+Pattern Mode: Restart On Chord
 
 [Verse 1]
 [C]Stars [B7]shining bright [Ab]above [G]you
 [C]Night [E7]breezes seem to [A]whisper I [A7]love you
-[F]Birds singing in the [Fm]Sycamore tree
-[C]Dream a little [Ab]dream [G]of [G7]me
+[F:4]Birds singing in the [Fm:4]Sycamore tree
+[C]Dream a little [Ab:1:D]dream [G:1:D]of [G7]me
 
 [Verse 2]
 [C]Say [B7]nightie-night and [Ab]kiss [G]me
 [C]Just [E7]hold me tight and [A]tell me you'll [A7]miss me
-[F]While I'm alone and [Fm]blue as can be
-[C]Dream a little [Ab]dream [G]of [C]me [E7]
+[F:4]While I'm alone and [Fm:4]blue as can be
+[C]Dream a little [Ab:1:D]dream [G:1:D]of [C]me [E7]
 
 [Bridge 1]
 [A]Stars [F#m]fading but I [Bm]linger [E]on dear, [A]still [F#m]craving your [Bm]kiss [E]
@@ -31,8 +32,8 @@ Default Pattern: Simplified Alternative
 [Verse 3]
 [C]Sweet [B7]dreams till sunbeams [Ab]find [G]you
 [C]Sweet [E7]dreams that leave all [A]worries [A7]behind you
-[F]But in your dreams [Fm]whatever they be
-[C]Dream a little [Ab]dream [G]of [C]me [E7]
+[F:4]But in your dreams [Fm:4]whatever they be
+[C]Dream a little [Ab:1:D]dream [G:1:D]of [C]me [E7]
 
 [Bridge 2]
 [A]Stars [F#m]fading but I [Bm]linger [E]on dear, [A]still [F#m]craving your [Bm]kiss [E]
@@ -41,5 +42,5 @@ Default Pattern: Simplified Alternative
 [Verse 4]
 [C]Sweet [B7]dreams till sunbeams [Ab]find [G]you
 [C]Sweet [E7]dreams that leave all [A]worries far [A7]behind you
-[F]But in your dreams [Fm]whatever they be
-[C]Dream a little [Ab]dream [G]of, [Ab]dream [G]of, [Ab]dream [G]of [C]me
+[F:4]But in your dreams [Fm:4]whatever they be
+[C]Dream a little [Ab:1:D]dream [G:1:D]of, [Ab:1:D]dream [G:1:D]of, [Ab:1:D]dream [G:1:D]of [C]me

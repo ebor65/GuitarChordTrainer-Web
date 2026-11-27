@@ -13,7 +13,7 @@ const drillButton = element("drill-button");
 const inputButton = element("check-input");
 const timerOnly = element("timer-only");
 const historyFilter = element("history-filter");
-const chordNames = Object.keys(chords);
+const chordNames = Object.keys(chords).filter(name => !name.includes("/"));
 const pairName = (pair) => [...pair].sort().join(" ↔ ");
 const timeLabel = (seconds) => seconds == null ? "—" : `${seconds.toFixed(2)} s`;
 const dateLabel = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });

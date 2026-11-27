@@ -269,3 +269,13 @@ progress { display: block; width: 100%; height: .55rem; accent-color: var(--acce
   .song-beats.triplets { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .song-beats.triplets .song-beat:nth-child(7) { margin-inline-start: 0; }
 }
+
+.song-beats.extended-grid { position: relative; max-height: 12rem; overflow-y: auto; }
+@media (max-width: 560px) {
+  .song-beats.extended-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+#song-seek { width: 5rem; }
+#song-event { overflow-wrap: anywhere; }
+
+.song-timing-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: .45rem; margin-bottom: .5rem; }
+.song-timing-fields label > :is(input, select) { width: 100%; }

@@ -1,13 +1,13 @@
-const cacheName = "guitar-chord-trainer-shell-v13";
+const cacheName = "guitar-chord-trainer-shell-v14";
 const guitarDirectory = "./assets/guitar/";
 const fretsByString = { e2: "013", a2: "023", d3: "01234", g3: "01234", b3: "0123", e4: "01234" };
 const guitarFiles = Object.entries(fretsByString).flatMap(([string, frets]) =>
   [...frets].flatMap((fret) => ["d", "u"].map((stroke) => `meta-steel/${string}-${fret}-${stroke}.wav`)));
 guitarFiles.push("muted-1.wav", "muted-2.wav");
 const files = [
-  "./index.html", "./styles.css?v=13", "./app.mjs?v=13", "./music.mjs",
+  "./index.html", "./styles.css?v=14", "./app.mjs?v=14", "./music.mjs",
   ...guitarFiles.map((name) => guitarDirectory + name),
-  "./capture.mjs", "./tuner.mjs", "./songs.mjs", "./song-format.mjs", "./assets/songs/dream-a-little-dream.txt", "./rhythm.mjs", "./rhythm-ui.mjs", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
+  "./capture.mjs", "./tuner.mjs", "./songs.mjs", "./song-format.mjs", "./assets/songs/dream-a-little-dream.txt", "./assets/songs/dream-a-little-dream-triplet.txt", "./rhythm.mjs", "./rhythm-ui.mjs", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
 ];
 
 self.addEventListener("install", (event) => {

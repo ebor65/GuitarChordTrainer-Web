@@ -4,6 +4,10 @@ export const chords = {
   A7: [[9, 1, 4, 7], "x02020", "--2-3-"],
   Am: [[9, 0, 4], "x02210", "--231-"],
   Ab: [[8, 0, 3], "xx1114", "--1114"],
+  Am7: [[9, 0, 4, 7], "x02010", "--2-1-"],
+  Bb: [[10, 2, 5], "xx3331", "--3331"],
+  "C/G": [[0, 4, 7], "332010", "342-1-"],
+  Cmaj7: [[0, 4, 7, 11], "x32000", "-32---"],
   Bm: [[11, 2, 6], "x24432", "-13421"],
   B7: [[11, 3, 6, 9], "x21202", "-213-4"],
   C: [[0, 4, 7], "x32010", "-32-1-"],
@@ -100,7 +104,7 @@ export function recognizeChord(samples, rate) {
     total += weight;
   }
 
-  const ranked = Object.entries(chords).map(([name, [notes]]) => {
+  const ranked = Object.entries(chords).filter(([name]) => !name.includes("/")).map(([name, [notes]]) => {
     const energy = notes.map((note) => chroma[note] / total);
     const [root, third, fifth, seventh] = energy;
     const sum = energy.reduce((a, b) => a + b, 0);

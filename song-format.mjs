@@ -1,9 +1,10 @@
 import { chords } from "./music.mjs";
-import { arrangement, gridOptions, meterGrid, meters, readPattern, validBpm } from "./rhythm.mjs";
+import { arrangement, gridOptions, meterGrid, meterKey, readPattern, supportedMeters, validBpm } from "./rhythm.mjs";
 
 const fields = new Set(["title", "artist", "key", "tuning", "capo", "meter", "bpm", "subdivision",
-  "timing", "chart url", "default pattern"]);
+  "timing", "chart url", "default pattern", "default chord beats", "pattern mode"]);
 const chordMarker = /^[A-Z](?:[#♯b♭])?(?:(?:maj|min|dim|aug|sus|add|m|M)?\d*|[+°])(?:\/[A-G][#♯b♭]?)?(?:[:@].*)?$/;
+const patternModes = ["Continuous Across Chords", "Restart On Chord"];
 const defaults = { tempo: 84, meter: 4, pattern: "D-DU-UDU" };
 const errorAt = (line, message) => new Error(`Line ${line}: ${message}`);
 const beatsPerBar = (grid) => grid.labels.length / grid.subdivision;
@@ -20,7 +21,9 @@ function readHeaders(lines) {
     if (!match) break;
     const name = match[1].trim();
     const key = name.toLowerCase();
-    const target = key.startsWith("pattern ") ? patterns : values;
+    // Existing charts could name a D/U/- pattern "Mode".
+    const legacyMode = key === "pattern mode" && /^[DU-]+$/i.test(match[2].replace(/\s/g, ""));
+    const target = (key.startsWith("pattern ") && !fields.has(key)) || legacyMode ? patterns : values;
     if (target === values && !fields.has(key)) break;
     const id = target === patterns ? name.slice(8).trim() : key;
     if (target.has(id)) throw errorAt(start + 1, `Duplicate ${name}.`);
@@ -34,21 +37,22 @@ function readSetup(lines, fallback) {
   const { values, patterns: named, start } = readHeaders(lines);
   const structured = values.size || named.size;
   const meterField = values.get("meter");
-  const meter = meterField
-    ? Number(Object.keys(meters).find(key => meters[key].name === meterField.value))
-    : fallback.meter ?? defaults.meter;
-  if (!Object.hasOwn(meters, meter)) {
-    throw errorAt(meterField?.line ?? 1, `Unsupported meter. Supported meters are ${Object.values(meters).map(grid => grid.name).join(", ")}.`);
+  const meter = meterKey(meterField?.value ?? fallback.meter ?? defaults.meter);
+  if (meter === null) {
+    throw errorAt(meterField?.line ?? 1, 'Unsupported meter. Use ' + supportedMeters + '.');
   }
   const subdivisionField = values.get("subdivision");
-  const originalKind = (subdivisionField?.value ?? fallback.kind ?? meters[meter].kind).toLowerCase();
-  const kind = ["eighth", "eighth-note", "eighth notes"].includes(originalKind) || (meter === 6 && originalKind === "straight")
-    ? meters[meter].kind : originalKind;
+  const base = meterGrid(meter).kind;
+  const originalKind = (subdivisionField?.value ?? fallback.kind ?? base).toLowerCase();
+  const kind = ["eighth", "eighth-note", "eighth notes", "straight"].includes(originalKind) && base === "compound"
+    ? base : ({ "eighth": "straight", "eighth-note": "straight", "eighth notes": "straight",
+      "triplets": "triplet", "swing eighths": "swing", "sixteenths": "sixteenth" })[originalKind] ?? originalKind;
   const choices = gridOptions(meter);
   if (!choices.some(grid => grid.kind === kind)) {
     throw errorAt(subdivisionField?.line ?? 1,
-      `Unsupported subdivision for ${meters[meter].name}. Supported subdivisions are ${choices.map(grid => grid.kind).join(", ")} (eighth is an alias for ${meters[meter].kind}).`);
+      'Unsupported subdivision for ' + choices[0].name + '. Supported subdivisions are ' + choices.map(grid => grid.kind).join(", ") + '.');
   }
+
   if (structured) {
     for (const [key, label] of [["title", "Title"], ["meter", "Meter"], ["bpm", "BPM"]]) {
       if (!values.has(key)) throw errorAt(1, `Add a ${label} header.`);
@@ -60,7 +64,7 @@ function readSetup(lines, fallback) {
   if (!validBpm(bpm)) throw errorAt(bpmField?.line ?? 1, "Choose a saved song tempo between 40 and 150 BPM.");
   const patterns = [];
   for (const [name, field] of named) {
-    try { patterns.push({ name, value: readPattern(field.value, meter, kind) }); }
+    try { patterns.push({ name, value: readChartPattern(field.value) }); }
     catch (error) { throw errorAt(field.line, `${name}. ${error.message}`); }
   }
   if (!patterns.length) {
@@ -74,6 +78,11 @@ function readSetup(lines, fallback) {
   if (!preferred) throw errorAt(patternField.line, `Unknown default pattern. Choose ${patterns.map(({ name }) => name).join(", ")}.`);
 
   const meta = Object.fromEntries([...values].map(([key, field]) => [key, field.value]));
+  const duration = values.get("default chord beats");
+  const defaultSlots = duration ? durationSlots(duration.value, grid, duration.line, "Default Chord Beats") : grid.labels.length;
+  const mode = values.get("pattern mode");
+  const patternMode = mode ? patternModes.find(value => value.toLowerCase() === mode.value.toLowerCase()) : patternModes[0];
+  if (!patternMode) throw errorAt(mode.line, 'Pattern Mode must be ' + patternModes.join(" or ") + '.');
   const urlField = values.get("chart url");
   if (urlField) {
     try {
@@ -85,24 +94,30 @@ function readSetup(lines, fallback) {
     }
   }
   meta.title ??= fallback.title ?? "Untitled song";
-  return { start, meter, grid, bpm, meta, patterns, preferred };
+  return { start, meter, grid, bpm, meta, patterns, preferred, defaultSlots, patternMode };
 }
 
-function durationSlots(text, grid, line) {
-  const match = /^(\d+(?:\.\d+)?)(?:\/(\d+))?$/.exec(text.trim());
+export function readChartPattern(text) {
+  const pattern = text.toUpperCase().replace(/\s+/g, "");
+  if (!pattern || /[^DUX-]/.test(pattern)) throw new Error("Enter a pattern using D, U, X and -.");
+  return pattern;
+}
+
+function durationSlots(text, grid, line, label) {
+  const match = /^((?:\d+(?:\.\d+)?|\.\d+))(?:\/(\d+))?$/.exec(text.trim());
   const slots = match ? Number(match[1]) * grid.subdivision / (match[2] === undefined ? 1 : Number(match[2])) : NaN;
   const whole = Math.round(slots);
   if (!Number.isSafeInteger(whole) || whole <= 0 || Math.abs(slots - whole) > 1e-8) {
-    throw errorAt(line, `Duration must be positive and fit the ${grid.kind} subdivision (${grid.subdivision} slots per beat).`);
+    throw errorAt(line, `${label}: duration must be positive and fit the ${grid.kind} subdivision (${grid.subdivision} slots per beat).`);
   }
   return whole;
 }
 
 function positionSlot(text, grid, line) {
-  const match = /^([1-9]\d*)\.([1-4])(?:(\&)|\.([1-3]))?$/.exec(text.trim());
+  const match = /^([1-9]\d*)\.([1-9]\d*)(?:(\&)|\.([1-9]\d*))?$/.exec(text.trim());
   if (!match || Number(match[2]) > beatsPerBar(grid) || (match[3] && grid.subdivision !== 2) ||
       Number(match[4] ?? 1) > grid.subdivision) {
-    throw errorAt(line, `Use a bar.beat position for ${grid.name}, such as @1.1${grid.subdivision === 2 ? " or @1.1&" : " or @1.1.2"}.`);
+    throw errorAt(line, `Use a bar.beat position for ${grid.name}, such as @1.1${grid.subdivision === 2 ? " or @1.1&" : grid.subdivision > 2 ? " or @1.1.2" : ""}.`);
   }
   return (Number(match[1]) - 1) * grid.labels.length + (Number(match[2]) - 1) * grid.subdivision +
     (match[3] ? 1 : Number(match[4] ?? 1) - 1);
@@ -126,7 +141,7 @@ function alignedChords(line) {
 
 export function parseSongText(source, fallback = {}) {
   const lines = source.split(/\r?\n/);
-  const { start, meter, grid, bpm, meta, patterns, preferred } = readSetup(lines, fallback);
+  const { start, meter, grid, bpm, meta, patterns, preferred, defaultSlots, patternMode } = readSetup(lines, fallback);
   const size = grid.labels.length;
   const positioned = lines.slice(start).some(line => /\[[^\[\]]+@[^\[\]]+\]/.test(line));
   const changes = [];
@@ -142,17 +157,27 @@ export function parseSongText(source, fallback = {}) {
       const match = /^([^:@]+)(?:([:@])(.+))?$/.exec(marker);
       if (!match) throw errorAt(line, `Invalid chord marker [${marker}].`);
       const chord = normalizeChord(match[1].trim());
-      if (!Object.hasOwn(chords, chord)) throw errorAt(line, `Chord ${chord} is unavailable. Supported chords: ${Object.keys(chords).join(", ")}.`);
+      if (!Object.hasOwn(chords, chord)) throw errorAt(line, `Chord ${chord} in [${marker}] is unavailable. Supported chords: ${Object.keys(chords).join(", ")}.`);
       const markerType = match[2];
       if (positioned && markerType === ":") throw errorAt(line, "Use beat durations or @ positions throughout the chart.");
-      const duration = markerType === ":" ? durationSlots(match[3], grid, line) : size;
+      const [durationText, writtenPattern, ...extra] = markerType === ":" ? match[3].split(":") : [];
+      if (extra.length) throw errorAt(line, 'Use [Chord:Beats:Pattern] in [' + marker + '].');
+      const duration = markerType === ":" && (durationText.trim() || writtenPattern === undefined)
+        ? durationSlots(durationText, grid, line, '[' + marker + ']') : defaultSlots;
+      let localPattern;
+      if (writtenPattern !== undefined) {
+        try { localPattern = readChartPattern(writtenPattern); }
+        catch (error) { throw errorAt(line, '[' + marker + ']: ' + error.message); }
+        if (localPattern.length > duration) throw errorAt(line,
+          '[' + marker + '] has ' + localPattern.length + ' strokes or rests. This chord fits ' + duration + ' slots.');
+      }
       const slot = markerType === "@" ? positionSlot(match[3], grid, line) : cursor;
       if (!Number.isSafeInteger(slot + duration) || slot <= (changes.at(-1)?.slot ?? -1) || (!changes.length && slot !== 0)) {
         throw errorAt(line, "Start at 1.1 and put chord positions in increasing order.");
       }
       section.start ??= slot;
       piece.change = changes.length;
-      changes.push({ chord, lyrics: piece.text, slot, explicit: Boolean(markerType), line });
+      changes.push({ chord, lyrics: piece.text, slot, localPattern, marker, explicit: Boolean(markerType), line, section: sections.length });
       cursor = positioned ? (Math.floor(slot / size) + 1) * size : slot + duration;
     }
     if (barLine && cursor - startSlot !== size) {
@@ -196,15 +221,44 @@ export function parseSongText(source, fallback = {}) {
     if (item.start === undefined) throw errorAt(item.line, "Add a chord to this section.");
     item.end = sections[index + 1]?.start ?? cursor;
   });
-  return { ...arrangement(preferred.value, changes, meter, { kind: grid.kind, endSlot: cursor }),
-    bpm, meta, patterns, defaultPattern: preferred.name, sections };
+  changes.forEach((change, index) => {
+    change.duration = (changes[index + 1]?.slot ?? cursor) - change.slot;
+  });
+  return { ...arrangement(preferred.value, changes, meter, {
+    kind: grid.kind, endSlot: cursor, restart: patternMode === patternModes[1],
+  }), bpm, meta, patterns, defaultPattern: preferred.name, defaultSlots, patternMode, sections };
+}
+
+export const timingHeaders = ["Meter", "BPM", "Subdivision", "Default Chord Beats", "Default Pattern", "Pattern Mode"];
+
+export function updateTimingHeaders(source, song, values) {
+  const lines = source.split(/\r?\n/);
+  const { values: existing, patterns, start } = readHeaders(lines);
+  const next = [...lines];
+  const newHeaders = [];
+  if (!existing.has("title")) newHeaders.push("Title: " + song.meta.title);
+  timingHeaders.forEach((label, index) => {
+    const value = values[index].trim();
+    const previous = existing.get(label.toLowerCase());
+    const line = value ? label + ": " + value : null;
+    if (previous) next[previous.line - 1] = line;
+    else if (line) newHeaders.push(line);
+  });
+  if (!patterns.size) newHeaders.push("Pattern " + song.defaultPattern + ": " + song.pattern);
+  if (newHeaders.length) next.splice(start, 0, ...newHeaders, "");
+  return next.filter(line => line !== null).join("\n");
 }
 
 export function parseSong(source, tempo, strumming, meter = 4) {
   return parseSongText(source, { tempo, pattern: strumming, meter });
 }
 
-export const formatGuide = `Use Title, Meter, and BPM headers for a formatted chart. With chords only, those headers are optional.\n${
-  Object.entries(meters).map(([meter, grid]) => `${grid.name} ${gridOptions(Number(meter)).map(option =>
-    `${option.kind}: ${option.labels.length} slots`).join(" or ")}`).join(" · ")
-}\nAdd [Verse 1] or [Bridge] headings and chords such as [G] or [C:2]. An untimed chord lasts a bar. Beat durations use quarter notes, or dotted quarters in 6/8. Use Pattern Name: D/U/- slots and Default Pattern: Name.`;
+export const formatGuide = [
+  "For formatted charts, include Title, Meter, and BPM. Chord-only charts can omit the headers.",
+  "Meter: " + supportedMeters + ". Subdivision: quarter, straight (eighths), triplet, sixteenth, or swing where it fits the beat.",
+  "BPM counts the denominator note in simple meters and dotted quarters in 6/8, 9/8, 12/8 and other compound /8 meters.",
+  "Default Chord Beats: 2 sets the duration for [G]. If omitted, each untimed chord lasts one bar.",
+  "Pattern Main: D - D U and Default Pattern: Main select the repeating pattern. D = down, U = up, X = muted, - = sustain.",
+  "Pattern Mode: Restart On Chord starts the default pattern at every chord. Continuous Across Chords follows the song timeline and is the default.",
+  "Use [Verse 1] for sections and [F#m:2], [C:0.5:D], [C:2:D-DU] or [C::D] among lyrics. A local pattern plays once and then sustains.",
+].join("\n");

@@ -1,10 +1,15 @@
-import { meterGrid, meters, strokes, presets, readPattern, resizePattern, arrangement, clampBpm, validBpm,
+import { gridOptions, meterGrid, meterKey, meters, strokeAt, strokes, presets, readPattern, resizePattern, arrangement, clampBpm, validBpm,
   RhythmTimeline, RhythmClock, RhythmAudio } from "./rhythm.mjs";
+
+import { readChartPattern } from "./song-format.mjs";
+
+const strokeNames = { D: "downstroke", U: "upstroke", X: "muted strum", "-": "sustain" };
 
 export function createRhythmPanel(container, options) {
   container.append(document.getElementById("rhythm-controls").content.cloneNode(true));
   const get = (name) => container.querySelector(`[data-rhythm="${name}"]`);
   const meter = get("meter");
+  const division = get("subdivision");
   const unit = get("unit");
   const pattern = get("pattern");
   const bpm = get("bpm");
@@ -22,7 +27,7 @@ export function createRhythmPanel(container, options) {
   const position = get("position");
   const currentChord = get("current");
   const nextChord = get("next");
-  const locked = [meter, pattern, countIn, sound, ...options.locked];
+  const locked = [meter, division, pattern, countIn, sound, ...options.locked];
   const buttons = [];
   let session;
   let kind = options.kind;
@@ -33,28 +38,40 @@ export function createRhythmPanel(container, options) {
   const offeredMeters = options.strumming || options.fixedMeter ? Object.keys(meters) : [4, 3];
   meter.replaceChildren(...offeredMeters.map(value => new Option(meters[value].name, value)));
   meter.value = options.meter;
-  meter.disabled = Boolean(options.fixedMeter);
+  function setMeter(value) {
+    if (![...meter.options].some(option => option.value === String(value))) {
+      meter.add(new Option(meterGrid(value).name, value));
+    }
+    meter.value = value;
+    division.replaceChildren(...gridOptions(value).map(grid => new Option(grid.kind, grid.kind)));
+    kind = meterGrid(value, kind).kind;
+    division.value = kind;
+  }
+  setMeter(options.meter);
+  meter.disabled = division.disabled = Boolean(options.fixedMeter);
   pattern.value = options.pattern;
   bpm.value = options.bpm;
   demo.textContent = options.demoLabel;
   practice.textContent = options.practiceLabel;
 
   function settings() {
-    const beatsPerBar = Number(meter.value);
-    return { meter: beatsPerBar, kind, pattern: readPattern(pattern.value, beatsPerBar, kind) };
+    const selected = meterKey(meter.value);
+    const value = options.fixedMeter ? readChartPattern(pattern.value) : readPattern(pattern.value, selected, kind);
+    return { meter: selected, kind, pattern: value };
   }
 
   function updateGrid() {
-    const selectedMeter = Number(meter.value);
+    const selectedMeter = meterKey(meter.value);
     const definition = meterGrid(selectedMeter, kind);
     const { labels, subdivision, unit: bpmUnit } = definition;
     const size = labels.length;
-    const value = resizePattern(pattern.value, selectedMeter, kind);
-    const compound = definition.kind === "compound";
-    const triplets = definition.kind === "triplet";
+    const raw = pattern.value.toUpperCase().replace(/\s/g, "").replace(/[^DUX-]/g, "-");
+    const value = options.fixedMeter ? raw || "-" : resizePattern(pattern.value, selectedMeter, kind);
+    const compound = definition.kind === "compound" && size === 6;
+    const triplets = definition.kind === "triplet" && size === 12;
     grid.classList.toggle("compound", compound);
     grid.classList.toggle("triplets", triplets);
-    unit.textContent = compound || triplets || selectedMeter === 2 ? bpmUnit : "";
+    unit.textContent = bpmUnit;
     bpm.setAttribute("aria-label", `Practice BPM (${bpmUnit.toLowerCase()})`);
     while (buttons.length !== size) {
       if (buttons.length > size) {
@@ -66,9 +83,12 @@ export function createRhythmPanel(container, options) {
         button.className = "song-beat";
         button.append(document.createElement("small"), document.createElement("strong"));
         button.addEventListener("click", () => {
-          const next = [...resizePattern(pattern.value, Number(meter.value), kind)];
-          const order = "DU-";
-          next[index] = order[(order.indexOf(next[index]) + 1) % order.length];
+          let next;
+          try { next = [...settings().pattern]; }
+          catch (error) { message.textContent = error.message; return; }
+          const step = index % next.length;
+          const order = "DUX-";
+          next[step] = order[(order.indexOf(next[step]) + 1) % order.length];
           pattern.value = next.join(" ");
           options.custom?.();
           preview(true);
@@ -77,14 +97,15 @@ export function createRhythmPanel(container, options) {
         grid.append(button);
       }
     }
-    grid.style.setProperty("--slots", size);
+    grid.style.setProperty("--slots", Math.min(size, 12));
+    grid.classList.toggle("extended-grid", size > 12);
     buttons.forEach((button, index) => {
-      const stroke = value[index];
+      const stroke = value[index % value.length];
       button.firstChild.textContent = labels[index];
       button.lastChild.textContent = strokes[stroke];
-      const beat = subdivision === 3 ? `Slot ${index + 1}` :
+      const beat = subdivision !== 2 ? `Slot ${index + 1}` :
         index % 2 ? `and after beat ${Math.floor(index / 2) + 1}` : `Beat ${labels[index]}`;
-      button.setAttribute("aria-label", `${beat}, ${{ D: "downstroke", U: "upstroke", "-": "rest" }[stroke]}. Change stroke`);
+      button.setAttribute("aria-label", `${beat}, ${strokeNames[stroke]}. Change stroke`);
       button.disabled = Boolean(session);
     });
   }
@@ -117,6 +138,23 @@ export function createRhythmPanel(container, options) {
       previousPulse = beat;
     }
     const size = buttons.length;
+    const barStart = pulse && !pulse.countIn ? pulse.slot - pulse.beat : null;
+    if (session && barStart !== session.displayedBar) {
+      session.displayedBar = barStart;
+      const { song, from, to } = session.timeline;
+      buttons.forEach((button, index) => {
+        const slot = barStart === null ? -1 : barStart + index;
+        const stroke = slot >= from && slot < to ? strokeAt(song, slot) : "-";
+        button.lastChild.textContent = strokes[stroke];
+        button.setAttribute("aria-label", song.grid.labels[index] + ", " + strokeNames[stroke]);
+      });
+    }
+    if (beat >= 0 && size > 12 && buttons[beat].offsetTop !== buttons[0].offsetTop) {
+      const button = buttons[beat];
+      grid.scrollTop = Math.max(0, button.offsetTop - buttons[0].offsetTop - button.offsetHeight);
+    } else if (beat >= 0) {
+      grid.scrollTop = 0;
+    }
     const label = !pulse ? "" : pulse.countIn ? "Count-in" :
       `Bar ${Math.floor(pulse.slot / size) + 1} of ${Math.ceil(session.timeline.song.slots / size)}`;
     if (label !== previousBar) {
@@ -128,12 +166,12 @@ export function createRhythmPanel(container, options) {
     const next = pulse ? pulse.nextChord ?? "—" : second;
     if (currentChord.textContent !== chord) currentChord.textContent = chord;
     if (nextChord.textContent !== next) nextChord.textContent = next;
-    options.onPulse?.(pulse);
+    options.onPulse?.(pulse, session?.timeline.song);
   }
 
   function playing(on) {
     for (const field of locked) field.disabled = on;
-    meter.disabled = on || Boolean(options.fixedMeter);
+    division.disabled = meter.disabled = on || Boolean(options.fixedMeter);
     demo.disabled = practice.disabled = on;
     pause.disabled = stopButton.disabled = !on;
     pause.textContent = "Pause";
@@ -151,6 +189,7 @@ export function createRhythmPanel(container, options) {
     }
     show(null);
     playing(false);
+    options.onReady?.(false);
     message.textContent = text;
   }
 
@@ -212,6 +251,7 @@ export function createRhythmPanel(container, options) {
       current.clock = new RhythmClock(current.timeline, context.currentTime + 0.07, bpm.valueAsNumber);
       updateMix();
       pause.disabled = false;
+      options.onReady?.(true);
       message.textContent = "";
       fill(current);
       current.timer = setInterval(() => fill(current), 20);
@@ -255,8 +295,9 @@ export function createRhythmPanel(container, options) {
     if (taps.length > 1 && now > taps[0]) setBpm(60000 * (taps.length - 1) / (now - taps[0]));
   });
   meter.addEventListener("change", () => {
-    const selected = Number(meter.value);
+    const selected = meterKey(meter.value);
     kind = undefined;
+    setMeter(selected);
     const preset = options.onMeter?.(selected);
     if (preset) {
       pattern.value = [...preset[1]].join(" ");
@@ -265,6 +306,12 @@ export function createRhythmPanel(container, options) {
       pattern.value = [...resizePattern(pattern.value, selected)].join(" ");
       options.custom?.();
     }
+    preview(true);
+  });
+  division.addEventListener("change", () => {
+    kind = division.value;
+    pattern.value = [...resizePattern(pattern.value, meterKey(meter.value), kind)].join(" ");
+    options.custom?.();
     preview(true);
   });
   pattern.addEventListener("change", () => { options.custom?.(); preview(true); });
@@ -278,10 +325,23 @@ export function createRhythmPanel(container, options) {
   show(null);
   return {
     stop, preview, setBpm,
+    seek(slot) {
+      if (!session?.clock) return;
+      const { timeline, clock, context, audio } = session;
+      if (!Number.isInteger(slot) || slot < timeline.from || slot >= timeline.to) {
+        message.textContent = "Choose a bar that starts inside the current playback range.";
+        return;
+      }
+      const now = context.currentTime;
+      audio.cancel(now, true);
+      clock.retime(now, clock.bpm, clock.paused, 0.04, slot - timeline.from);
+      message.textContent = "";
+      fill(session);
+    },
     refreshChords() { if (!session) show(null); },
     setPattern(nextMeter, nextPattern, nextKind) {
       kind = nextKind;
-      meter.value = nextMeter;
+      setMeter(nextMeter);
       pattern.value = [...nextPattern].join(" ");
       preview(false);
     },
@@ -313,9 +373,9 @@ export function createStrumming(container, beforeStart, chordPair) {
       return presets[name];
     },
     idleChords() { return muted.checked ? ["Muted strings", "—"] : chordPair(); },
-    read({ meter, pattern }) {
+    read({ meter, kind, pattern }) {
       const names = muted.checked ? ["Muted strings"] : chordPair();
-      const song = arrangement(pattern, names.map((chord, index) => ({ slot: index * pattern.length, chord })), meter);
+      const song = arrangement(pattern, names.map((chord, index) => ({ slot: index * pattern.length, chord })), meter, { kind });
       return { song, from: 0, to: song.slots, loop: repeat.checked };
     },
   });

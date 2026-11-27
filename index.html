@@ -9,8 +9,8 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon-192.png">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=13">
-  <script type="module" src="./app.mjs?v=13"></script>
+  <link rel="stylesheet" href="./styles.css?v=14">
+  <script type="module" src="./app.mjs?v=14"></script>
 </head>
 <body>
   <header class="masthead">
@@ -108,6 +108,11 @@
         <div id="song-player">
           <div id="song-rhythm"></div>
           <div class="rhythm-options">
+            <label>Seek to bar <input id="song-seek" type="number" min="1" value="1"></label>
+            <button type="button" id="song-seek-go" disabled>Go</button>
+          </div>
+          <p id="song-event" class="message" hidden></p>
+          <div class="rhythm-options">
             <label>Named pattern <select id="song-pattern"></select></label>
             <button type="button" id="song-song-speed">Use saved BPM</button>
             <label>Play <select id="song-section"></select></label>
@@ -126,10 +131,25 @@
           <details class="song-format"><summary>Format guide</summary><p id="song-format" class="message"></p></details>
           <div class="rhythm-options">
             <button type="button" id="song-example" disabled>Load example</button>
+            <button type="button" id="song-timing" aria-expanded="false" aria-controls="song-timing-fields">Timing settings</button>
             <button type="button" id="song-preview">Preview</button>
             <button type="button" id="song-save">Save song</button>
             <button type="button" id="song-cancel">Cancel</button>
           </div>
+          <fieldset id="song-timing-fields" hidden>
+            <legend>Timing settings</legend>
+            <div class="song-timing-fields">
+              <label>Meter <input type="text" id="song-timing-meter"></label>
+              <label>Saved BPM <input type="number" min="40" max="150" id="song-timing-bpm"></label>
+              <label>Subdivision <select id="song-timing-division"></select></label>
+              <label>Default chord beats <input type="text" id="song-timing-beats" placeholder="One bar"></label>
+              <label>Default pattern <select id="song-timing-pattern"></select></label>
+              <label>Pattern mode
+                <select id="song-timing-mode"><option>Continuous Across Chords</option><option>Restart On Chord</option></select>
+              </label>
+            </div>
+            <button type="button" id="song-timing-apply">Apply to chart</button>
+          </fieldset>
           <p id="song-editor-error" class="message pair-error" role="alert"></p>
           <div id="song-preview-sheet" class="song-sheet" aria-label="Song preview" tabindex="0" hidden></div>
         </div>
@@ -207,8 +227,9 @@
     </div>
     <div class="song-beats" data-rhythm="grid" role="group" aria-label="Strumming pattern"></div>
     <div class="rhythm-settings">
-      <label>Meter <select data-rhythm="meter"><option value="4">4/4</option><option value="3">3/4</option></select></label>
-      <label>Pattern (D / U / -) <input data-rhythm="pattern" type="text" spellcheck="false"></label>
+      <label>Meter <select data-rhythm="meter"></select></label>
+      <label>Subdivision <select data-rhythm="subdivision"></select></label>
+      <label>Pattern (D / U / X / -) <input data-rhythm="pattern" type="text" spellcheck="false"></label>
     </div>
     <div class="rhythm-options">
       <label><input data-rhythm="click" type="checkbox" checked> Metronome</label>
