@@ -9,8 +9,8 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon-192.png">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=4">
-  <script type="module" src="./app.mjs?v=4"></script>
+  <link rel="stylesheet" href="./styles.css?v=7">
+  <script type="module" src="./app.mjs?v=7"></script>
 </head>
 <body>
   <header class="masthead">
@@ -29,8 +29,9 @@
       <button type="button" data-view="tuner" aria-controls="tuner">Tuner</button>
       <button type="button" data-view="history" aria-controls="history">History</button>
     </nav>
-    <section id="practice" aria-labelledby="practice-heading">
-      <div class="practice-grid">
+    <section id="practice" aria-label="Practice">
+      <nav class="navigation practice-navigation" aria-label="Practice mode"><button type="button" id="show-chords" aria-controls="chord-practice" aria-pressed="true">Chord drills</button><button type="button" id="show-strumming" aria-controls="strumming" aria-pressed="false">Strumming</button></nav>
+      <div id="chord-practice" class="practice-grid">
         <article class="panel shapes-panel">
           <div class="section-heading">
             <h2 id="practice-heading">Chord shapes</h2>
@@ -66,41 +67,40 @@
           <p class="message" id="drill-message" role="status">Choose two different chords to begin.</p>
         </article>
       </div>
+      <article id="strumming" class="panel song-panel" aria-labelledby="strumming-heading" hidden>
+        <h2 id="strumming-heading">Strumming Trainer</h2>
+        <div class="rhythm-options">
+          <label>Preset <select id="strum-preset"></select></label>
+          <label><input id="strum-muted" type="checkbox"> Muted strings (otherwise hold G)</label>
+          <label><input id="strum-repeat" type="checkbox" checked> Repeat Bar</label>
+        </div>
+        <div id="strum-rhythm"></div>
+      </article>
     </section>
     <section id="songs" aria-labelledby="songs-heading" hidden>
       <article class="panel song-panel">
-        <div class="section-heading">
-          <h2 id="songs-heading">Song practice</h2>
-          <span id="song-position" class="target"></span>
+        <h2 id="songs-heading">Song practice</h2>
+        <div id="song-rhythm"></div>
+        <div class="rhythm-options">
+          <label><input id="song-loop" type="checkbox"> Loop bars</label>
+          <label>First bar <input id="song-first" type="number" min="1" value="1"></label>
+          <label>Last bar <input id="song-last" type="number" min="1"></label>
         </div>
-        <form id="song-form">
-          <div class="song-settings">
-            <label>Tempo (BPM)
-              <input id="song-tempo" type="number" min="40" max="150" value="84" required>
-            </label>
-            <label>Strumming pattern
-              <input id="song-pattern" type="text" value="D - D U - U D U" required spellcheck="false" aria-describedby="song-pattern-help">
-            </label>
+        <ol id="song-sheet" class="song-sheet" aria-label="Chords, timing, and lyrics" tabindex="0"></ol>
+        <details class="song-editor">
+          <summary>Edit song</summary>
+          <div class="rhythm-options">
+            <label>Saved song BPM <input id="song-tempo" type="number" min="40" max="150" required></label>
+            <button type="button" id="song-song-speed">Use saved BPM for practice</button>
           </div>
-          <p id="song-pattern-help" class="message">Eight slots per bar. Use D for down, U for up, and - for a rest.</p>
-          <details class="song-editor">
-            <summary>Edit song</summary>
-            <label for="song-source">Chord and lyric sheet</label>
-            <textarea id="song-source" rows="7" spellcheck="false" aria-describedby="song-format"></textarea>
-            <p id="song-format" class="message">Paste a chart with chords above the lyrics, or use inline chords like [G]First line [C]second line. Each chord starts a four-beat bar.</p>
-          </details>
-          <button class="primary" id="song-button" type="submit">Start song</button>
-        </form>
-        <p id="song-message" class="message" role="status"></p>
-        <div id="song-beats" class="song-beats" aria-label="Strumming pattern"></div>
-        <ol id="song-sheet" class="song-sheet" aria-label="Chords and lyrics" tabindex="0"></ol>
-        <div class="scores song-scores">
-          <div class="score good"><span>On-time strums</span><strong id="song-timing">0</strong></div>
-          <div class="score good"><span>Matching chords</span><strong id="song-chords">0</strong></div>
-        </div>
-        <p id="song-feedback" class="message"></p>
+          <label for="song-source">Chord and lyric sheet</label>
+          <textarea id="song-source" rows="7" spellcheck="false" aria-describedby="song-format"></textarea>
+          <p id="song-format" class="message">Use chords above lyrics or inline chords like [G]First line [C]second line. By default each chord starts a bar. Use [G@1.1] and [C@1.2&amp;] for bar 1, beat 1 and the eighth note after beat 2.</p>
+          <button type="button" id="song-explicit">Add editable positions to chart</button>
+        </details>
       </article>
     </section>
+
     <section id="tuner" aria-labelledby="tuner-heading" hidden>
       <article class="panel tuner-panel">
         <div class="section-heading">
@@ -145,5 +145,45 @@
       </article>
     </section>
   </main>
+  <template id="rhythm-controls">
+    <div class="rhythm-toolbar">
+      <div class="rhythm-tempo">
+        <label>Practice BPM <input data-rhythm="bpm" type="number" min="40" max="150" inputmode="numeric"></label>
+        <button type="button" data-rhythm="slower" aria-label="Decrease practice tempo by 5 BPM">−5</button>
+        <button type="button" data-rhythm="faster" aria-label="Increase practice tempo by 5 BPM">+5</button>
+        <button type="button" data-rhythm="tap">Tap tempo</button>
+      </div>
+      <div class="rhythm-actions">
+        <button class="primary" type="button" data-rhythm="demo"></button>
+        <button class="primary" type="button" data-rhythm="practice"></button>
+        <button type="button" data-rhythm="pause" disabled>Pause</button>
+        <button type="button" data-rhythm="stop" disabled>Stop</button>
+      </div>
+    </div>
+    <div class="rhythm-chords">
+      <div>Current chord <strong data-rhythm="current">—</strong></div>
+      <div>Next chord <strong data-rhythm="next">—</strong></div>
+      <span class="target" data-rhythm="position"></span>
+    </div>
+    <div class="song-beats" data-rhythm="grid" role="group" aria-label="Strumming pattern"></div>
+    <div class="rhythm-settings">
+      <label>Meter <select data-rhythm="meter"><option value="4">4/4</option><option value="3">3/4</option></select></label>
+      <label>Pattern (D / U / -) <input data-rhythm="pattern" type="text" spellcheck="false"></label>
+    </div>
+    <div class="rhythm-options">
+      <label><input data-rhythm="click" type="checkbox" checked> Metronome</label>
+      <label>Click volume <input data-rhythm="volume" type="range" min="0" max="100" value="65"></label>
+      <label><input data-rhythm="count" type="checkbox" checked> One-bar count-in</label>
+      <label><input data-rhythm="guitar" type="checkbox"> Guitar during practice</label>
+      <label>Guitar sound
+        <select data-rhythm="sound">
+          <option value="recorded">Recorded guitar</option>
+          <option value="synthesized">Synthesized guitar</option>
+        </select>
+      </label>
+    </div>
+    <p data-rhythm="status" class="message" role="status"></p>
+  </template>
+
 </body>
 </html>

@@ -1,7 +1,13 @@
-const cacheName = "guitar-chord-trainer-shell-v4";
+const cacheName = "guitar-chord-trainer-shell-v7";
+const guitarDirectory = "./assets/guitar/";
+const fretsByString = { e2: "013", a2: "023", d3: "0123", g3: "0123", b3: "0123", e4: "0123" };
+const guitarFiles = Object.entries(fretsByString).flatMap(([string, frets]) =>
+  [...frets].flatMap((fret) => ["d", "u"].map((stroke) => `meta-steel/${string}-${fret}-${stroke}.wav`)));
+guitarFiles.push("muted-1.wav", "muted-2.wav");
 const files = [
-  "./index.html", "./styles.css?v=4", "./app.mjs?v=4", "./music.mjs",
-  "./capture.mjs", "./songs.mjs", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
+  "./index.html", "./styles.css?v=7", "./app.mjs?v=7", "./music.mjs",
+  ...guitarFiles.map((name) => guitarDirectory + name),
+  "./capture.mjs", "./songs.mjs", "./rhythm.mjs", "./rhythm-ui.mjs", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -21,6 +27,10 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET" || !request.url.startsWith(self.registration.scope)) return;
+  if (request.url.startsWith(new URL(guitarDirectory, self.registration.scope).href)) {
+    event.respondWith(caches.open(cacheName).then(async (cache) => (await cache.match(request)) ?? fetch(request)));
+    return;
+  }
   event.respondWith(fetch(request, { cache: "no-cache" }).catch(async (error) => {
     const cache = await caches.open(cacheName);
     const cached = await cache.match(request.mode === "navigate" ? "./index.html" : request);

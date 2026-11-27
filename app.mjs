@@ -1,5 +1,6 @@
 import { chords, guitarStrings, recognizeChord, estimatePitch, concatenate } from "./music.mjs";
 import { createSongPractice } from "./songs.mjs";
+import { createStrumming } from "./rhythm-ui.mjs";
 
 const duration = 60;
 const countdownSeconds = 3;
@@ -16,7 +17,14 @@ const timeLabel = (seconds) => seconds == null ? "—" : `${seconds.toFixed(2)} 
 const dateLabel = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 let storageError = false;
 let session;
-const songPractice = createSongPractice(toggleSession);
+const songPractice = createSongPractice(element("songs"), () => stopSession(""));
+const strumming = createStrumming(element("strumming"), () => stopSession(""));
+const soundSelectors = document.querySelectorAll('[data-rhythm="sound"]');
+for (const selector of soundSelectors) {
+  selector.addEventListener("change", () => {
+    for (const field of soundSelectors) field.value = selector.value;
+  });
+}
 
 function loadPractice() {
   const defaults = { pair: ["G", "C"], history: [] };
@@ -226,10 +234,6 @@ function processAudio(current, { samples, timestamp }) {
     processStrum(current, samples, timestamp, Math.sqrt(energy / samples.length));
     return;
   }
-  if (current.mode === "song") {
-    songPractice.capture(current, samples, timestamp, Math.sqrt(energy / samples.length));
-    return;
-  }
   current.recent.push(samples);
   current.peaks.push(peak);
   if (current.recent.length > 10) current.recent.shift();
@@ -257,9 +261,6 @@ function stopSession(message) {
     selectors.forEach((selector) => { selector.disabled = false; });
     showShapes();
     element("drill-message").textContent = message;
-  } else if (current.mode === "song") {
-    songPractice.stop();
-    songPractice.message.textContent = message;
   } else {
     tunerButton.textContent = "Start tuner";
     element("tuner-state").textContent = "Microphone off";
@@ -293,8 +294,7 @@ function microphoneError(error) {
 
 async function startSession(mode) {
   const isDrill = mode === "drill";
-  const isSong = mode === "song";
-  const message = isSong ? songPractice.message : element(isDrill ? "drill-message" : "tuner-message");
+  const message = element(isDrill ? "drill-message" : "tuner-message");
   if (isDrill && practice.pair[0] === practice.pair[1]) {
     message.textContent = "Choose two different chords to begin.";
     return;
@@ -303,15 +303,12 @@ async function startSession(mode) {
     message.textContent = "Microphone access requires an HTTPS page or localhost.";
     return;
   }
-  const song = isSong ? songPractice.read() : null;
-  if (isSong && !song) return;
-  const current = { mode, active: false, song };
+  const current = { mode, active: false };
   session = current;
-  const button = isSong ? songPractice.button : isDrill ? drillButton : tunerButton;
+  const button = isDrill ? drillButton : tunerButton;
   button.textContent = "Cancel";
   message.textContent = "Waiting for microphone access…";
   if (isDrill) selectors.forEach((selector) => { selector.disabled = true; });
-  if (isSong) songPractice.setEditing(false);
 
   try {
     current.context = new AudioContext({ latencyHint: "interactive" });
@@ -377,8 +374,6 @@ async function startSession(mode) {
           finishDrill(current);
         }
       }, 50);
-    } else if (isSong) {
-      songPractice.start(current, stopSession);
     } else {
       Object.assign(current, { recent: [], peaks: [], nextPitch: 0 });
       current.active = true;
@@ -444,11 +439,27 @@ function toggleSession(mode) {
 drillButton.addEventListener("click", () => toggleSession("drill"));
 tunerButton.addEventListener("click", () => toggleSession("tuner"));
 historyFilter.addEventListener("change", renderHistory);
+function showPracticeMode(useStrumming) {
+  if (useStrumming) stopSession("Drill stopped. Only completed drills appear in history.");
+  else strumming.stop();
+  element("chord-practice").hidden = useStrumming;
+  element("strumming").hidden = !useStrumming;
+  element("show-chords").setAttribute("aria-pressed", String(!useStrumming));
+  element("show-strumming").setAttribute("aria-pressed", String(useStrumming));
+}
+
+element("show-chords").addEventListener("click", () => showPracticeMode(false));
+element("show-strumming").addEventListener("click", () => showPracticeMode(true));
+function stopRhythm() {
+  songPractice.stop();
+  strumming.stop();
+}
 const navigation = Array.from(document.querySelectorAll("[data-view]"));
 for (const button of navigation) {
   button.addEventListener("click", () => {
     if (button.hasAttribute("aria-current")) return;
     stopSession(session?.mode === "drill" ? "Drill stopped. Only completed drills appear in history." : "");
+    stopRhythm();
     for (const item of navigation) {
       const selected = item === button;
       if (selected) item.setAttribute("aria-current", "page");
@@ -458,7 +469,7 @@ for (const button of navigation) {
     if (button.dataset.view === "history") renderHistory();
   });
 }
-window.addEventListener("pagehide", () => stopSession(""));
+window.addEventListener("pagehide", () => { stopSession(""); stopRhythm(); });
 showShapes();
 showPracticeRecords();
 
