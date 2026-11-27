@@ -1,6 +1,7 @@
-import { chords, guitarStrings, recognizeChord, estimatePitch, concatenate } from "./music.mjs";
+import { chords, recognizeChord, concatenate } from "./music.mjs";
 import { createSongPractice } from "./songs.mjs";
 import { createStrumming } from "./rhythm-ui.mjs";
+import { createTuner } from "./tuner.mjs";
 
 const duration = 60;
 const countdownSeconds = 3;
@@ -9,7 +10,8 @@ const element = (id) => document.getElementById(id);
 const selectors = [element("chord-first"), element("chord-second")];
 const shapeCards = [element("shape-first"), element("shape-second")];
 const drillButton = element("drill-button");
-const tunerButton = element("tuner-button");
+const inputButton = element("check-input");
+const timerOnly = element("timer-only");
 const historyFilter = element("history-filter");
 const chordNames = Object.keys(chords);
 const pairName = (pair) => [...pair].sort().join(" ↔ ");
@@ -17,20 +19,15 @@ const timeLabel = (seconds) => seconds == null ? "—" : `${seconds.toFixed(2)} 
 const dateLabel = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 let storageError = false;
 let session;
-const songPractice = createSongPractice(element("songs"), () => stopSession(""));
-const strumming = createStrumming(element("strumming"), () => stopSession(""));
-const soundSelectors = document.querySelectorAll('[data-rhythm="sound"]');
-for (const selector of soundSelectors) {
-  selector.addEventListener("change", () => {
-    for (const field of soundSelectors) field.value = selector.value;
-  });
-}
-
+const tuner = createTuner({
+  element, input: () => session?.mode === "tuner" ? session : undefined,
+  start: () => startInput("tuner"), stop: () => stopSession(),
+});
 function loadPractice() {
   const defaults = { pair: ["G", "C"], history: [] };
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey)) ?? {};
-    const pair = saved.pair?.length === 2 && saved.pair.every((chord) => chordNames.includes(chord))
+    const pair = Array.isArray(saved.pair) && saved.pair.length === 2 && saved.pair.every((chord) => chordNames.includes(chord))
       ? saved.pair : defaults.pair;
     return { pair, history: Array.isArray(saved.history) ? saved.history : [] };
   } catch {
@@ -40,6 +37,16 @@ function loadPractice() {
 }
 
 const practice = loadPractice();
+const songPractice = createSongPractice(element("songs"), () => stopSession(""));
+const strumming = createStrumming(element("strumming"), () => stopSession(""), () => practice.pair);
+const soundSelectors = document.querySelectorAll('[data-rhythm="sound"]');
+for (const selector of soundSelectors) {
+  selector.addEventListener("change", () => {
+    for (const field of soundSelectors) field.value = selector.value;
+  });
+}
+
+let activeShape = -1;
 
 function savePractice() {
   try {
@@ -63,7 +70,10 @@ function recordsFor(runs) {
 function drawShape(canvas, chord, active) {
   const [, frets, fingers] = chords[chord];
   const ctx = canvas.getContext("2d");
-  const ink = active ? "#275b44" : "#34433a";
+  const colors = getComputedStyle(canvas);
+  const ink = colors.getPropertyValue(active ? "--diagram-active" : "--diagram-ink").trim();
+  const fretColor = colors.getPropertyValue("--diagram-frets").trim();
+  const fingerColor = colors.getPropertyValue("--diagram-finger").trim();
   const strings = Array.from({ length: 6 }, (_, index) => 36 + index * 33.6);
   const nut = 56;
   const spacing = 39;
@@ -73,7 +83,7 @@ function drawShape(canvas, chord, active) {
   ctx.lineCap = "round";
   ctx.font = "20px system-ui";
   ctx.fillStyle = ink;
-  ctx.strokeStyle = "#78877a";
+  ctx.strokeStyle = fretColor;
   for (let fret = 0; fret <= 4; fret++) {
     const y = nut + fret * spacing;
     ctx.lineWidth = fret === 0 ? 6 : 2;
@@ -94,8 +104,10 @@ function drawShape(canvas, chord, active) {
   if (fingers.indexOf("1") !== fingers.lastIndexOf("1")) {
     ctx.lineWidth = 20;
     ctx.beginPath();
-    ctx.moveTo(strings[0], nut + spacing / 2);
-    ctx.lineTo(strings[5], nut + spacing / 2);
+    const first = fingers.indexOf("1");
+    const y = nut + (Number(frets[first]) - 0.5) * spacing;
+    ctx.moveTo(strings[first], y);
+    ctx.lineTo(strings[fingers.lastIndexOf("1")], y);
     ctx.stroke();
   }
   const description = [];
@@ -118,7 +130,7 @@ function drawShape(canvas, chord, active) {
       ctx.beginPath();
       ctx.arc(x, y, 13, 0, 2 * Math.PI);
       ctx.fill();
-      ctx.fillStyle = "#fffefa";
+      ctx.fillStyle = fingerColor;
       ctx.fillText(finger, x, y + 1);
       description.push(`${name}, fret ${fret}, finger ${finger}`);
     }
@@ -127,6 +139,7 @@ function drawShape(canvas, chord, active) {
 }
 
 function showShapes(active = -1) {
+  activeShape = active;
   shapeCards.forEach((card, index) => {
     const highlighted = active === index;
     card.classList.toggle("active", highlighted);
@@ -185,89 +198,75 @@ function processStrum(current, samples, timestamp, level) {
   current.previous = level;
 }
 
-const stringCards = guitarStrings.map(([note], index) => {
-  const card = document.createElement("div");
-  const label = document.createElement("strong");
-  const number = document.createElement("span");
-  label.textContent = note;
-  number.textContent = 6 - index;
-  card.className = "string";
-  card.append(label, number);
-  element("strings").append(card);
-  return card;
-});
-
-function showPitch(pitch) {
-  const needle = element("needle");
-  needle.hidden = pitch === null;
-  if (pitch === null) {
-    element("pitch").textContent = "—";
-    element("direction").textContent = "Pluck one open string at a time.";
-    element("pitch-detail").textContent = "";
-    stringCards.forEach((card) => card.classList.remove("active"));
-    return;
-  }
-  const midi = 69 + 12 * Math.log2(pitch / 440);
-  const closest = guitarStrings.reduce((best, [, note], index) =>
-    Math.abs(note - midi) < Math.abs(guitarStrings[best][1] - midi) ? index : best, 0);
-  const [note, target] = guitarStrings[closest];
-  const cents = (midi - target) * 100;
-  const inTune = Math.abs(cents) <= 5;
-  const adjustment = cents < 0 ? "Flat · Tighten to raise pitch" : "Sharp · Loosen to lower pitch";
-  stringCards.forEach((card, index) => card.classList.toggle("active", index === closest));
-  element("pitch").textContent = `${note} · String ${6 - closest}`;
-  element("direction").textContent = inTune ? "In tune" : adjustment;
-  element("pitch-detail").textContent = `${cents >= 0 ? "+" : ""}${cents.toFixed(1)} cents · ${pitch.toFixed(1)} Hz`;
-  needle.style.left = `${50 + Math.max(-100, Math.min(100, cents)) / 2}%`;
-  needle.classList.toggle("in-tune", inTune);
+function showInputPeak(current, peak, timestamp) {
+  current.peaks.push(peak);
+  if (current.peaks.length > 20) current.peaks.shift();
+  if (timestamp < current.nextMeter) return false;
+  current.nextMeter = timestamp + 0.1;
+  const maxPeak = Math.max(...current.peaks);
+  const db = 20 * Math.log10(Math.max(maxPeak, 1e-6));
+  const isTuner = current.mode === "tuner";
+  const label = element(isTuner ? "level-label" : "drill-level-label");
+  const level = maxPeak >= 0.98 ? "Near clipping" : !isTuner && db < -52 ? "No detectable signal" :
+    db < -40 ? "Low signal" : "Signal OK";
+  element(isTuner ? "level" : "drill-level").value = Math.max(0, 60 + db);
+  if (label.textContent !== level) label.textContent = level;
+  return true;
 }
 
 function processAudio(current, { samples, timestamp }) {
-  if (session !== current || !current.active) return;
+  if (session !== current || !current.inputReady) return;
+  if (current.mode === "tuner" && !tuner.capturing(current, timestamp)) return;
   let energy = 0;
   let peak = 0;
   for (const sample of samples) {
     energy += sample ** 2;
     peak = Math.max(peak, Math.abs(sample));
   }
-  if (current.mode === "drill") {
+  const update = showInputPeak(current, peak, timestamp);
+  if (current.mode === "drill" && current.active) {
     processStrum(current, samples, timestamp, Math.sqrt(energy / samples.length));
-    return;
-  }
-  current.recent.push(samples);
-  current.peaks.push(peak);
-  if (current.recent.length > 10) current.recent.shift();
-  if (current.peaks.length > 20) current.peaks.shift();
-  if (timestamp < current.nextPitch) return;
-  current.nextPitch = timestamp + 0.1;
-  const maxPeak = Math.max(...current.peaks);
-  const db = 20 * Math.log10(Math.max(maxPeak, 1e-6));
-  element("level").value = Math.max(0, 60 + db);
-  element("level-label").textContent = maxPeak >= 0.98 ? "Near clipping" : db < -40 ? "Low signal" : "Signal OK";
-  if (current.recent.length === 10) {
-    showPitch(estimatePitch(concatenate(current.recent), current.context.sampleRate));
+  } else if (current.mode === "tuner") {
+    tuner.capture(current, samples, timestamp, peak, update);
   }
 }
 
-function stopSession(message) {
+function showDrillControls() {
+  const [first, second] = practice.pair;
+  const valid = first !== second;
+  const running = session?.mode === "drill" || session?.mode === "timer";
+  const checking = session?.mode === "check";
+  element("pair-error").textContent = valid ? "" : "Choose two different chords";
+  element("drill-instructions").textContent = valid ? `Play ${first} first, then alternate ${first} and ${second}.` : "";
+  for (const selector of selectors) {
+    selector.disabled = running;
+    selector.setAttribute("aria-invalid", String(!valid));
+  }
+  drillButton.disabled = !valid || (checking && !session.inputReady);
+  drillButton.textContent = running ? session.active ? "Stop drill" : "Cancel" : "Start drill";
+  timerOnly.disabled = running;
+  element("drill-scores").hidden = timerOnly.checked;
+  inputButton.hidden = timerOnly.checked;
+  inputButton.disabled = running;
+  inputButton.textContent = checking ? session.inputReady ? "Stop input check" : "Cancel input check" : "Check input";
+  element("drill-input").hidden = !checking && session?.mode !== "drill";
+}
+
+function stopSession(message = "") {
   if (!session) return;
   const current = session;
   session = undefined;
   clearInterval(current.timer);
   current.stream?.getTracks().forEach((track) => track.stop());
   if (current.context?.state !== "closed") current.context?.close().catch(() => {});
-  if (current.mode === "drill") {
-    drillButton.textContent = "Start drill";
-    selectors.forEach((selector) => { selector.disabled = false; });
-    showShapes();
-    element("drill-message").textContent = message;
+  if (current.mode === "tuner") {
+    tuner.reset(message);
   } else {
-    tunerButton.textContent = "Start tuner";
-    element("tuner-state").textContent = "Microphone off";
-    element("level").value = 0;
-    element("level-label").textContent = "Off";
-    showPitch(null);
-    element("tuner-message").textContent = message;
+    showDrillControls();
+    showShapes();
+    element("drill-level").value = 0;
+    element("drill-level-label").textContent = "";
+    element("drill-message").textContent = message;
   }
 }
 
@@ -292,23 +291,70 @@ function microphoneError(error) {
   return "Could not start microphone audio. Check browser support and try again.";
 }
 
-async function startSession(mode) {
-  const isDrill = mode === "drill";
-  const message = element(isDrill ? "drill-message" : "tuner-message");
-  if (isDrill && practice.pair[0] === practice.pair[1]) {
-    message.textContent = "Choose two different chords to begin.";
-    return;
+function startDrillTimer(current) {
+  const scored = current.mode === "drill";
+  Object.assign(current, {
+    pair: [...practice.pair], active: false, good: 0, bad: 0, previous: 0.001, floor: 0.001,
+    lastStrum: -Infinity, lastCorrect: null, fastest: null, blocks: [],
+  });
+  updateClock(duration);
+  if (scored) {
+    element("good").textContent = "0";
+    element("bad").textContent = "0";
+    showPracticeRecords();
   }
+  showShapes();
+  showDrillControls();
+
+  const message = element("drill-message");
+  const countdownUntil = performance.now() + countdownSeconds * 1000;
+  let countdown = countdownSeconds;
+  message.textContent = `Starting in ${countdown}`;
+  current.timer = setInterval(() => {
+    const now = performance.now();
+    if (!current.active) {
+      const remaining = Math.ceil((countdownUntil - now) / 1000);
+      if (remaining > 0) {
+        if (remaining !== countdown) {
+          countdown = remaining;
+          message.textContent = `Starting in ${countdown}`;
+        }
+        return;
+      }
+      current.deadline = now + duration * 1000;
+      current.active = true;
+      if (scored) {
+        current.audioStartsAt = current.context.currentTime;
+        current.audioDeadline = current.audioStartsAt + duration;
+        showShapes(0);
+      }
+      showDrillControls();
+      message.textContent = scored ? "Strum the highlighted chord." : "Alternate the two chords at your own pace.";
+    }
+    updateClock(Math.max(0, (current.deadline - now) / 1000));
+    if (now < current.deadline) return;
+    if (!scored) stopSession("Time’s up.");
+    else if (!current.blocks.length || now > current.deadline + 350) finishDrill(current);
+  }, 50);
+}
+
+async function startInput(mode) {
+  const isTuner = mode === "tuner";
+  const message = element(isTuner ? "tuner-message" : "drill-message");
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-    message.textContent = "Microphone access requires an HTTPS page or localhost.";
+    const text = "Microphone access requires an HTTPS page or localhost.";
+    if (isTuner) tuner.reset(text);
+    else message.textContent = text;
     return;
   }
-  const current = { mode, active: false };
+  const current = { mode, peaks: [], recent: [], nextMeter: 0 };
   session = current;
-  const button = isDrill ? drillButton : tunerButton;
-  button.textContent = "Cancel";
+  if (isTuner) tuner.connecting();
+  else {
+    showDrillControls();
+    element("drill-level-label").textContent = "Connecting…";
+  }
   message.textContent = "Waiting for microphone access…";
-  if (isDrill) selectors.forEach((selector) => { selector.disabled = true; });
 
   try {
     current.context = new AudioContext({ latencyHint: "interactive" });
@@ -337,51 +383,19 @@ async function startSession(mode) {
     };
     capture.onprocessorerror = interrupted;
     stream.getAudioTracks().forEach((track) => track.addEventListener("ended", interrupted));
-    if (isDrill) {
-      Object.assign(current, {
-        pair: [...practice.pair], good: 0, bad: 0, previous: 0.001, floor: 0.001,
-        lastStrum: -Infinity, lastCorrect: null, fastest: null, blocks: [],
-      });
-      updateClock(duration);
-      element("good").textContent = "0";
-      element("bad").textContent = "0";
-      showShapes();
-      showPracticeRecords();
-      const countdownUntil = performance.now() + countdownSeconds * 1000;
-      let countdown = countdownSeconds;
-      message.textContent = `Starting in ${countdown}`;
-      current.timer = setInterval(() => {
-        const now = performance.now();
-        if (!current.active) {
-          const remaining = Math.ceil((countdownUntil - now) / 1000);
-          if (remaining > 0) {
-            if (remaining !== countdown) {
-              countdown = remaining;
-              message.textContent = `Starting in ${countdown}`;
-            }
-            return;
-          }
-          current.audioStartsAt = current.context.currentTime;
-          current.audioDeadline = current.audioStartsAt + duration;
-          current.deadline = now + duration * 1000;
-          current.active = true;
-          showShapes(0);
-          button.textContent = "Stop drill";
-          message.textContent = "Strum the highlighted chord.";
-        }
-        updateClock(Math.max(0, (current.deadline - now) / 1000));
-        if (now >= current.deadline && (!current.blocks.length || now > current.deadline + 350)) {
-          finishDrill(current);
-        }
-      }, 50);
-    } else {
-      Object.assign(current, { recent: [], peaks: [], nextPitch: 0 });
-      current.active = true;
-      button.textContent = "Stop tuner";
-      message.textContent = "";
-      element("tuner-state").textContent = "Listening";
-    }
     source.connect(capture).connect(silent).connect(current.context.destination);
+    current.inputReady = true;
+    if (isTuner) {
+      message.textContent = "";
+      tuner.connected();
+    } else {
+      element("drill-level-label").textContent = "No detectable signal";
+      if (mode === "drill") startDrillTimer(current);
+      else {
+        showDrillControls();
+        message.textContent = "Strum your guitar to check the input level.";
+      }
+    }
   } catch (error) {
     if (session === current) stopSession(microphoneError(error));
   }
@@ -425,31 +439,54 @@ selectors.forEach((selector, index) => {
   selector.addEventListener("change", () => {
     practice.pair[index] = selector.value;
     savePractice();
+    strumming.refreshChords();
     showShapes();
     showPracticeRecords();
+    showDrillControls();
     element("drill-message").textContent = storageError ? "Chord selections could not be saved." : "";
   });
 });
 
-function toggleSession(mode) {
-  if (!session) return startSession(mode);
-  stopSession(mode === "drill" ? "Drill stopped. Only completed drills appear in history." : "");
+function stopDrill() {
+  stopSession(session?.mode === "drill" ? "Drill stopped. Only completed drills appear in history." : "");
 }
 
-drillButton.addEventListener("click", () => toggleSession("drill"));
-tunerButton.addEventListener("click", () => toggleSession("tuner"));
+drillButton.addEventListener("click", () => {
+  if (practice.pair[0] === practice.pair[1]) return;
+  if (session?.mode === "check" && session.inputReady) {
+    session.mode = "drill";
+    startDrillTimer(session);
+  } else if (session) {
+    stopDrill();
+  } else if (timerOnly.checked) {
+    session = { mode: "timer" };
+    startDrillTimer(session);
+  } else {
+    void startInput("drill");
+  }
+});
+inputButton.addEventListener("click", () => {
+  if (session?.mode === "check") stopSession();
+  else if (!session && !timerOnly.checked) void startInput("check");
+});
+timerOnly.addEventListener("change", () => {
+  if (session?.mode === "check") stopSession();
+  element("drill-message").textContent = "";
+  showDrillControls();
+});
 historyFilter.addEventListener("change", renderHistory);
+
 function showPracticeMode(useStrumming) {
-  if (useStrumming) stopSession("Drill stopped. Only completed drills appear in history.");
+  if (useStrumming) stopDrill();
   else strumming.stop();
   element("chord-practice").hidden = useStrumming;
   element("strumming").hidden = !useStrumming;
-  element("show-chords").setAttribute("aria-pressed", String(!useStrumming));
-  element("show-strumming").setAttribute("aria-pressed", String(useStrumming));
 }
 
-element("show-chords").addEventListener("click", () => showPracticeMode(false));
-element("show-strumming").addEventListener("click", () => showPracticeMode(true));
+element("show-chords").addEventListener("change", () => showPracticeMode(false));
+element("show-strumming").addEventListener("change", () => showPracticeMode(true));
+showPracticeMode(element("show-strumming").checked);
+
 function stopRhythm() {
   songPractice.stop();
   strumming.stop();
@@ -460,6 +497,7 @@ for (const button of navigation) {
     if (button.hasAttribute("aria-current")) return;
     stopSession(session?.mode === "drill" ? "Drill stopped. Only completed drills appear in history." : "");
     stopRhythm();
+    tuner.reset();
     for (const item of navigation) {
       const selected = item === button;
       if (selected) item.setAttribute("aria-current", "page");
@@ -469,9 +507,24 @@ for (const button of navigation) {
     if (button.dataset.view === "history") renderHistory();
   });
 }
-window.addEventListener("pagehide", () => { stopSession(""); stopRhythm(); });
-showShapes();
+window.addEventListener("pagehide", () => { stopSession(""); stopRhythm(); tuner.reset(); });
+const themeToggle = element("dark-mode");
+const themeKey = "guitar-chord-trainer-theme";
+let dark = false;
+try { dark = localStorage.getItem(themeKey) === "dark"; } catch {}
+function showTheme() {
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  themeToggle.setAttribute("aria-pressed", String(dark));
+  showShapes(activeShape);
+}
+themeToggle.addEventListener("click", () => {
+  dark = !dark;
+  try { localStorage.setItem(themeKey, dark ? "dark" : "light"); } catch {}
+  showTheme();
+});
+showTheme();
 showPracticeRecords();
+showDrillControls();
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("./service-worker.js").catch(() => {});

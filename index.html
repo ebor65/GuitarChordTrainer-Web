@@ -9,8 +9,8 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon-192.png">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=7">
-  <script type="module" src="./app.mjs?v=7"></script>
+  <link rel="stylesheet" href="./styles.css?v=13">
+  <script type="module" src="./app.mjs?v=13"></script>
 </head>
 <body>
   <header class="masthead">
@@ -20,6 +20,7 @@
         <h1>Guitar Chord Trainer</h1>
         <p>Drills, tuning, and practice history</p>
       </div>
+      <button type="button" id="dark-mode" aria-pressed="false">Dark mode</button>
     </div>
   </header>
   <main>
@@ -30,7 +31,10 @@
       <button type="button" data-view="history" aria-controls="history">History</button>
     </nav>
     <section id="practice" aria-label="Practice">
-      <nav class="navigation practice-navigation" aria-label="Practice mode"><button type="button" id="show-chords" aria-controls="chord-practice" aria-pressed="true">Chord drills</button><button type="button" id="show-strumming" aria-controls="strumming" aria-pressed="false">Strumming</button></nav>
+      <div class="navigation practice-navigation" role="radiogroup" aria-label="Practice mode">
+        <label><input type="radio" name="practice-mode" id="show-chords" aria-controls="chord-practice" checked><span>Chord drills</span></label>
+        <label><input type="radio" name="practice-mode" id="show-strumming" aria-controls="strumming"><span>Strumming</span></label>
+      </div>
       <div id="chord-practice" class="practice-grid">
         <article class="panel shapes-panel">
           <div class="section-heading">
@@ -40,64 +44,95 @@
           <div class="shapes">
             <div class="shape" id="shape-first">
               <label for="chord-first">First chord</label>
-              <select id="chord-first"></select>
+              <select id="chord-first" aria-describedby="pair-error"></select>
               <canvas width="240" height="252" role="img"></canvas>
             </div>
             <div class="shape" id="shape-second">
               <label for="chord-second">Second chord</label>
-              <select id="chord-second"></select>
+              <select id="chord-second" aria-describedby="pair-error"></select>
               <canvas width="240" height="252" role="img"></canvas>
             </div>
           </div>
+          <p id="pair-error" class="message pair-error" role="status"></p>
+          <p id="drill-instructions" class="message"></p>
           <p class="legend"><span>○ Open</span><span>× Muted</span><span>1–4 Fretting fingers</span></p>
         </article>
         <article class="panel drill-panel" aria-labelledby="drill-heading">
           <h2 id="drill-heading">One-minute drill</h2>
+          <div class="drill-options">
+            <label><input type="checkbox" id="timer-only"> Timer only</label>
+            <button type="button" id="check-input" aria-controls="drill-input">Check input</button>
+          </div>
+          <div id="drill-input" class="input-level" hidden>
+            <label for="drill-level">Input peak</label>
+            <meter id="drill-level" min="0" max="60" low="12" high="58" optimum="40" value="0"></meter>
+            <span id="drill-level-label" class="level-label" role="status"></span>
+          </div>
           <div class="clock">
             <span>Time remaining</span>
             <strong id="clock">1:00</strong>
           </div>
           <progress id="countdown" aria-label="Time remaining" max="60" value="60"></progress>
-          <div class="scores">
-            <div class="score good"><span>Good chords</span><strong id="good">0</strong><span id="best-good">Best run —</span></div>
-            <div class="score bad"><span>Bad chords</span><strong id="bad">0</strong><span id="best-bad">Best run —</span></div>
+          <div id="drill-scores">
+            <div class="scores">
+              <div class="score good"><span>Good chords</span><strong id="good">0</strong><span id="best-good">Best run —</span></div>
+              <div class="score bad"><span>Bad chords</span><strong id="bad">0</strong><span id="best-bad">Best run —</span></div>
+            </div>
+            <div class="best-time"><span>Best clean change</span><strong id="best-time">—</strong></div>
+            <p class="message clean-change-help">Fastest time between two consecutive correct strums for this pair, with no wrong or unclear strum in between.</p>
           </div>
-          <div class="best-time"><span>Best clean change</span><strong id="best-time">—</strong></div>
           <button type="button" class="primary" id="drill-button">Start drill</button>
-          <p class="message" id="drill-message" role="status">Choose two different chords to begin.</p>
+          <p class="message" id="drill-message" role="status"></p>
         </article>
       </div>
       <article id="strumming" class="panel song-panel" aria-labelledby="strumming-heading" hidden>
         <h2 id="strumming-heading">Strumming Trainer</h2>
         <div class="rhythm-options">
           <label>Preset <select id="strum-preset"></select></label>
-          <label><input id="strum-muted" type="checkbox"> Muted strings (otherwise hold G)</label>
-          <label><input id="strum-repeat" type="checkbox" checked> Repeat Bar</label>
+          <label><input id="strum-muted" type="checkbox"> Muted strings</label>
+          <label><input id="strum-repeat" type="checkbox" checked> Repeat</label>
         </div>
+        <p class="message">Play one bar on each chord from the drill.</p>
         <div id="strum-rhythm"></div>
       </article>
     </section>
     <section id="songs" aria-labelledby="songs-heading" hidden>
       <article class="panel song-panel">
         <h2 id="songs-heading">Song practice</h2>
-        <div id="song-rhythm"></div>
-        <div class="rhythm-options">
-          <label><input id="song-loop" type="checkbox"> Loop bars</label>
-          <label>First bar <input id="song-first" type="number" min="1" value="1"></label>
-          <label>Last bar <input id="song-last" type="number" min="1"></label>
+        <div class="rhythm-options song-library">
+          <label>Song <select id="song-picker"></select></label>
+          <button type="button" id="song-add">Add song</button>
+          <button type="button" id="song-edit" disabled>Customize copy</button>
         </div>
-        <ol id="song-sheet" class="song-sheet" aria-label="Chords, timing, and lyrics" tabindex="0"></ol>
-        <details class="song-editor">
-          <summary>Edit song</summary>
+        <p id="song-status" class="message" role="status"></p>
+        <div id="song-player">
+          <div id="song-rhythm"></div>
           <div class="rhythm-options">
-            <label>Saved song BPM <input id="song-tempo" type="number" min="40" max="150" required></label>
-            <button type="button" id="song-song-speed">Use saved BPM for practice</button>
+            <label>Named pattern <select id="song-pattern"></select></label>
+            <button type="button" id="song-song-speed">Use saved BPM</button>
+            <label>Play <select id="song-section"></select></label>
+            <label><input id="song-repeat" type="checkbox"> Repeat</label>
           </div>
+          <div id="song-bars" class="rhythm-options" hidden>
+            <label>First bar <input id="song-first" type="number" min="1" value="1"></label>
+            <label>Last bar <input id="song-last" type="number" min="1"></label>
+          </div>
+          <div id="song-sheet" class="song-sheet" aria-label="Chords and lyrics" tabindex="0"></div>
+        </div>
+        <div id="song-editor" class="song-editor" hidden>
+          <h3 id="song-editor-heading">Add song</h3>
           <label for="song-source">Chord and lyric sheet</label>
-          <textarea id="song-source" rows="7" spellcheck="false" aria-describedby="song-format"></textarea>
-          <p id="song-format" class="message">Use chords above lyrics or inline chords like [G]First line [C]second line. By default each chord starts a bar. Use [G@1.1] and [C@1.2&amp;] for bar 1, beat 1 and the eighth note after beat 2.</p>
-          <button type="button" id="song-explicit">Add editable positions to chart</button>
-        </details>
+          <textarea id="song-source" rows="12" spellcheck="false" aria-describedby="song-format song-editor-error"></textarea>
+          <details class="song-format"><summary>Format guide</summary><p id="song-format" class="message"></p></details>
+          <div class="rhythm-options">
+            <button type="button" id="song-example" disabled>Load example</button>
+            <button type="button" id="song-preview">Preview</button>
+            <button type="button" id="song-save">Save song</button>
+            <button type="button" id="song-cancel">Cancel</button>
+          </div>
+          <p id="song-editor-error" class="message pair-error" role="alert"></p>
+          <div id="song-preview-sheet" class="song-sheet" aria-label="Song preview" tabindex="0" hidden></div>
+        </div>
       </article>
     </section>
 
@@ -108,6 +143,10 @@
           <span class="target" id="tuner-state">Microphone off</span>
         </div>
         <div id="strings" class="strings" aria-label="Standard guitar strings"></div>
+        <div class="rhythm-options tuner-options">
+          <label><input type="checkbox" id="tuner-repeat"> Repeat until tuned</label>
+        </div>
+        <p id="tuner-reference-status" class="message" role="status"></p>
         <div class="reading">
           <strong id="pitch">—</strong>
           <span id="direction">Pluck one open string at a time.</span>
@@ -152,6 +191,7 @@
         <button type="button" data-rhythm="slower" aria-label="Decrease practice tempo by 5 BPM">−5</button>
         <button type="button" data-rhythm="faster" aria-label="Increase practice tempo by 5 BPM">+5</button>
         <button type="button" data-rhythm="tap">Tap tempo</button>
+        <span class="tempo-unit" data-rhythm="unit"></span>
       </div>
       <div class="rhythm-actions">
         <button class="primary" type="button" data-rhythm="demo"></button>

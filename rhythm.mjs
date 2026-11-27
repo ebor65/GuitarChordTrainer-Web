@@ -1,35 +1,61 @@
 import { chords, guitarStrings } from "./music.mjs";
 
-export const beats = ["1", "&", "2", "&", "3", "&", "4", "&"];
+const simpleLabels = ["1", "&", "2", "&", "3", "&", "4", "&"];
+export const meters = {
+  2: { name: "2/4", labels: simpleLabels.slice(0, 4), subdivision: 2, unit: "Quarter-note beats", kind: "straight" },
+  3: { name: "3/4", labels: simpleLabels.slice(0, 6), subdivision: 2, unit: "Quarter-note beats", kind: "straight" },
+  4: { name: "4/4", labels: simpleLabels, subdivision: 2, unit: "Quarter-note beats", kind: "straight" },
+  6: { name: "6/8", labels: ["1", "2", "3", "4", "5", "6"], subdivision: 3, unit: "Dotted-quarter beats", kind: "compound" },
+};
+const tripletGrid = {
+  ...meters[4], kind: "triplet", subdivision: 3,
+  labels: ["1", "trip", "let", "2", "trip", "let", "3", "trip", "let", "4", "trip", "let"],
+};
+
+export function meterGrid(meter, kind = meters[meter].kind) {
+  return meter === 4 && kind === "triplet" ? tripletGrid : meters[meter];
+}
+
+export function gridOptions(meter) {
+  return meter === 4 ? [meters[4], tripletGrid] : [meters[meter]];
+}
+
 export const strokes = { D: "↓", U: "↑", "-": "–" };
 export const presets = {
   "Even downstrokes": [4, "D-D-D-D-", 80],
   "Folk strum": [4, "D-DU-UDU", 84],
   "Waltz": [3, "D-D-DU", 72],
   "Waltz upstrokes": [3, "D-UD-U", 72],
+  "2/4 Basic": [2, "D-D-", 60],
+  "6/8 Basic": [6, "D--D--", 60],
 };
 export const clampBpm = (bpm) => Math.min(150, Math.max(40, Math.round(bpm)));
 export const validBpm = (bpm) => Number.isInteger(bpm) && bpm === clampBpm(bpm);
 
-export function readPattern(text, meter) {
+export function readPattern(text, meter, kind) {
+  const slots = meterGrid(meter, kind).labels.length;
   const pattern = text.toUpperCase().replace(/\s+/g, "");
-  if (pattern.length !== meter * 2 || /[^DU-]/.test(pattern)) {
-    throw new Error(`Enter ${meter * 2} slots using D, U, and -.`);
+  if (pattern.length !== slots || /[^DU-]/.test(pattern)) {
+    throw new Error(`Enter ${slots} slots using D, U, and -.`);
   }
   return pattern;
 }
 
-export function resizePattern(text, meter) {
-  return text.toUpperCase().replace(/\s+/g, "").replace(/[^DU-]/g, "-").slice(0, meter * 2).padEnd(meter * 2, "-");
+export function resizePattern(text, meter, kind) {
+  const slots = meterGrid(meter, kind).labels.length;
+  return text.toUpperCase().replace(/\s+/g, "").replace(/[^DU-]/g, "-").slice(0, slots).padEnd(slots, "-");
 }
 
-export function slotLabel(slot, size) {
-  return `${Math.floor(slot / size) + 1}.${Math.floor((slot % size) / 2) + 1}${slot % 2 ? "&" : ""}`;
+export function slotLabel(slot, size, subdivision = 2) {
+  const offset = slot % subdivision;
+  const beat = Math.floor((slot % size) / subdivision) + 1;
+  const suffix = offset === 0 ? "" : subdivision === 2 ? "&" : `.${offset + 1}`;
+  return `${Math.floor(slot / size) + 1}.${beat}${suffix}`;
 }
 
-export function arrangement(pattern, changes) {
-  const slots = (Math.floor(changes.at(-1).slot / pattern.length) + 1) * pattern.length;
-  return { pattern, changes, slots };
+export function arrangement(pattern, changes, meter, { kind, endSlot } = {}) {
+  const slots = endSlot ?? (Math.floor(changes.at(-1).slot / pattern.length) + 1) * pattern.length;
+  return { pattern, changes, slots, meter, kind };
 }
 
 function rowAt(changes, slot) {
@@ -47,6 +73,7 @@ function rowAt(changes, slot) {
 export class RhythmTimeline {
   constructor(song, from, to, loop, countIn) {
     Object.assign(this, { song, from, to, loop });
+    this.subdivision = meterGrid(song.meter, song.kind).subdivision;
     this.first = countIn ? -song.pattern.length : 0;
   }
 
@@ -61,7 +88,7 @@ export class RhythmTimeline {
     const next = song.changes[row + 1];
     const nextChord = next && next.slot < to ? next.chord : loop ? song.changes[rowAt(song.changes, from)].chord : null;
     return {
-      time, index, countIn, slot, beat, row, chord: song.changes[row].chord, nextChord,
+      time, index, countIn, slot, beat, mainBeat: beat % this.subdivision === 0, row, chord: song.changes[row].chord, nextChord,
       stroke: countIn ? "-" : song.pattern[beat],
     };
   }
@@ -72,10 +99,11 @@ export class RhythmClock {
   constructor(timeline, time, bpm) {
     Object.assign(this, { timeline, time, bpm, phase: timeline.first, paused: false, next: timeline.first });
     this.previous = [];
+    this.subdivision = timeline.subdivision;
   }
 
   at(time) {
-    return this.phase + (this.paused ? 0 : (time - this.time) * this.bpm / 30);
+    return this.phase + (this.paused ? 0 : (time - this.time) * this.bpm * this.subdivision / 60);
   }
 
   retime(time, bpm, paused, resumeDelay = 0.04) {
@@ -93,11 +121,11 @@ export class RhythmClock {
   presentation(time) {
     while (this.previous[0]?.until <= time) this.previous.shift();
     const segment = this.previous[0] ?? this;
-    const phase = segment.phase + (segment.paused ? 0 : (time - segment.time) * segment.bpm / 30);
+    const phase = segment.phase + (segment.paused ? 0 : (time - segment.time) * segment.bpm * this.subdivision / 60);
     const index = Math.floor(phase);
     return {
       phase, paused: segment.paused,
-      pulse: this.timeline.pulse(index, segment.time + (index - segment.phase) * 30 / segment.bpm),
+      pulse: this.timeline.pulse(index, segment.time + (index - segment.phase) * 60 / (segment.bpm * this.subdivision)),
     };
   }
 
@@ -105,7 +133,7 @@ export class RhythmClock {
     if (this.paused) return;
     this.next = Math.max(this.next, Math.ceil(this.at(now)));
     for (;;) {
-      const time = this.time + (this.next - this.phase) * 30 / this.bpm;
+      const time = this.time + (this.next - this.phase) * 60 / (this.bpm * this.subdivision);
       if (time > horizon) return;
       const pulse = this.timeline.pulse(this.next, time);
       if (!pulse) return;
@@ -254,8 +282,8 @@ export class RhythmAudio {
     this.buffers.set(`${chord}-${stroke}`, buffer);
   }
 
-  play({ time, beat, stroke, chord }) {
-    if (beat % 2 === 0) this.queue(this.clickBuffer(beat === 0), this.click, time);
+  play({ time, beat, mainBeat, stroke, chord }) {
+    if (mainBeat) this.queue(this.clickBuffer(beat === 0), this.click, time);
     if (stroke !== "-") this.queue(this.buffers.get(`${chord}-${stroke}`), this.guitar, time);
   }
 }
